@@ -1,0 +1,1195 @@
+{
+  "name": "Brújula – B2 reserva",
+  "nodes": [
+    {
+      "id": "58786641-0925-4059-8b25-2e7c14e278f8",
+      "name": "Entrada",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "chat_id"
+            },
+            {
+              "name": "nombre"
+            },
+            {
+              "name": "contacto"
+            },
+            {
+              "name": "motivo"
+            },
+            {
+              "name": "motivo_otro"
+            },
+            {
+              "name": "fecha"
+            },
+            {
+              "name": "hora"
+            },
+            {
+              "name": "personas",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "position": [
+        40,
+        320
+      ],
+      "notes": "Recibe los datos de la reserva que armó el agente.",
+      "notesInFlow": true
+    },
+    {
+      "id": "80293123-c45a-4b1c-b68f-7ffd3171077f",
+      "name": "Revalidar disponibilidad",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "JRjFMBZU6MEQLoUa",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fecha": "={{ $json.fecha }}",
+            "fecha_hasta": "",
+            "personas": "={{ $json.personas }}",
+            "ignorar_anticipacion": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "fecha_hasta",
+              "displayName": "fecha_hasta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "ignorar_anticipacion",
+              "displayName": "ignorar_anticipacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "position": [
+        280,
+        320
+      ],
+      "notes": "Vuelve a consultar B1 justo antes de reservar, por si otra persona ganó el horario.",
+      "notesInFlow": true
+    },
+    {
+      "id": "2a888277-aadc-4100-aa06-99901d291a9d",
+      "name": "Evaluar y preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// El LLM propone, este nodo decide: solo se reserva un horario que B1 confirme libre en este momento.\nconst i = $('Entrada').first().json;\nconst b1 = $('Revalidar disponibilidad').first().json;\nconst cfg = b1.cfg || {};\nconst tz = cfg.zona_horaria || 'America/Montevideo';\nconst umbral = parseInt(cfg.umbral_grupo || '10');\nconst dur = parseInt(cfg.duracion_min || '60');\n// Normaliza la hora: '10', '10:00', '10hs' o '9:00' quedan como HH:MM.\nconst mh = String(i.hora || '').trim().match(/^(\\d{1,2})(?::?(\\d{2}))?/);\nconst hh = mh ? String(mh[1]).padStart(2, '0') + ':' + (mh[2] || '00') : '';\nconst personas = Number(i.personas);\nconst motivos = ['recorrido', 'centro_educativo', 'institucional', 'taller', 'otro'];\nconst faltan = [];\nif (!String(i.nombre || '').trim()) faltan.push('nombre');\nif (!String(i.contacto || '').trim()) faltan.push('contacto');\nif (!motivos.includes(String(i.motivo))) faltan.push('motivo (recorrido, centro_educativo, institucional, taller, otro)');\nif (faltan.length) return [{ json: { estado: 'datos_incompletos', faltan: faltan.join(', ') } }];\nif (!(b1.slots_libres || []).includes(hh)) {\n  return [{ json: { estado: 'no_disponible', fecha: i.fecha, hora: hh, motivo: b1.motivo || 'horario_ocupado_o_fuera_de_franja', slots_libres: (b1.slots_libres || []).join(', ') } }];\n}\nconst ahora = DateTime.now().setZone(tz);\nconst ini = DateTime.fromISO(i.fecha + 'T' + hh, { zone: tz });\nreturn [{ json: {\n  id: 'VIS-' + ahora.toFormat('yyyyMMddHHmmss') + '-' + Math.random().toString(36).slice(2, 6),\n  creado_en: ahora.toFormat('yyyy-MM-dd HH:mm:ss'), chat_id: String(i.chat_id), nombre: i.nombre, contacto: i.contacto,\n  motivo: i.motivo, motivo_otro: i.motivo_otro || '', fecha: i.fecha, hora: hh, personas: personas,\n  estado: personas > umbral ? 'pendiente_aprobacion' : 'confirmada', nota_staff: '', event_id: '',\n  csat_enviado: 'FALSE', csat_score: '', csat_comentario: '',\n  inicio: ini.toISO(), fin: ini.plus({ minutes: dur }).toISO(), umbral: umbral,\n  staff_chat_id: cfg.staff_chat_id || '', url_aprobacion: cfg.url_aprobacion || ''\n} }];"
+      },
+      "position": [
+        520,
+        320
+      ],
+      "notes": "Code: decide el estado (confirmada, pendiente por grupo >10, no disponible, datos incompletos) y arma la fila.",
+      "notesInFlow": true
+    },
+    {
+      "id": "e34ace02-5398-49bb-b076-8f9a65899550",
+      "name": "Según estado",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "579b447d-1f45-4334-aca2-e8f937f7bf77",
+                    "leftValue": "={{ $json.estado }}",
+                    "rightValue": "confirmada",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "confirmada"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1c686953-bbff-4a58-bcac-b9ff0a97cbe7",
+                    "leftValue": "={{ $json.estado }}",
+                    "rightValue": "pendiente_aprobacion",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pendiente_aprobacion"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "dc1b9afe-19d1-400f-9578-3c04e6281e1c",
+                    "leftValue": "={{ $json.estado }}",
+                    "rightValue": "no_disponible",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "no_disponible"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "68bc4802-6bf6-4e6d-9421-d37a4bda63f9",
+                    "leftValue": "={{ $json.estado }}",
+                    "rightValue": "datos_incompletos",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "datos_incompletos"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        760,
+        320
+      ],
+      "notes": "Switch: una salida por estado.",
+      "notesInFlow": true
+    },
+    {
+      "id": "01646fa3-79c7-4d1c-a14a-f93bf87bbd7a",
+      "name": "Crear evento",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "visitasceibal@gmail.com",
+          "mode": "list",
+          "cachedResultName": "Brújula"
+        },
+        "start": "={{ $json.inicio }}",
+        "end": "={{ $json.fin }}",
+        "additionalFields": {
+          "summary": "={{ 'Visita – ' + $json.nombre + ' (' + $json.personas + ' pers.)' }}",
+          "description": "={{ 'Motivo: ' + $json.motivo + ' ' + $json.motivo_otro + '\\nContacto: ' + $json.contacto + '\\nID: ' + $json.id }}"
+        }
+      },
+      "position": [
+        1080,
+        0
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "R4nVWZHU4E6SqMHQ",
+          "name": "Google Calendar account"
+        }
+      },
+      "notes": "Calendar: crea el evento de la visita.",
+      "notesInFlow": true
+    },
+    {
+      "id": "fd6476e6-b979-4812-829d-7f91c78e2ca4",
+      "name": "Registrar confirmada",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Evaluar y preparar').first().json.id }}",
+            "creado_en": "={{ $('Evaluar y preparar').first().json.creado_en }}",
+            "chat_id": "={{ $('Evaluar y preparar').first().json.chat_id }}",
+            "nombre": "={{ $('Evaluar y preparar').first().json.nombre }}",
+            "contacto": "={{ $('Evaluar y preparar').first().json.contacto }}",
+            "motivo": "={{ $('Evaluar y preparar').first().json.motivo }}",
+            "motivo_otro": "={{ $('Evaluar y preparar').first().json.motivo_otro }}",
+            "fecha": "={{ $('Evaluar y preparar').first().json.fecha }}",
+            "hora": "={{ $('Evaluar y preparar').first().json.hora }}",
+            "personas": "={{ $('Evaluar y preparar').first().json.personas }}",
+            "estado": "={{ $('Evaluar y preparar').first().json.estado }}",
+            "nota_staff": "={{ $('Evaluar y preparar').first().json.nota_staff }}",
+            "event_id": "={{ $json.id }}",
+            "csat_enviado": "={{ $('Evaluar y preparar').first().json.csat_enviado }}",
+            "csat_score": "={{ $('Evaluar y preparar').first().json.csat_score }}",
+            "csat_comentario": "={{ $('Evaluar y preparar').first().json.csat_comentario }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "position": [
+        1320,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: agrega la fila con estado confirmada.",
+      "notesInFlow": true
+    },
+    {
+      "id": "0f362dd2-7edc-4877-8e72-b21c1f0aac74",
+      "name": "Respuesta confirmada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "840efc84-6706-49e6-951e-0c7b2db8a37c",
+              "name": "estado",
+              "value": "confirmada",
+              "type": "string"
+            },
+            {
+              "id": "30dc36de-5b81-4e23-ab86-762be0147782",
+              "name": "id",
+              "value": "={{ $('Evaluar y preparar').first().json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "bf4ece54-c5d4-4f5c-8ec0-3778872ec716",
+              "name": "fecha",
+              "value": "={{ $('Evaluar y preparar').first().json.fecha }}",
+              "type": "string"
+            },
+            {
+              "id": "3c8e5a75-0f3d-4ea8-a826-8de92d945dc8",
+              "name": "hora",
+              "value": "={{ $('Evaluar y preparar').first().json.hora }}",
+              "type": "string"
+            },
+            {
+              "id": "81041c01-05fd-46b7-b578-b0608340287d",
+              "name": "mensaje",
+              "value": "Reserva confirmada y agendada.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        1560,
+        0
+      ],
+      "notes": "Texto que el agente le devuelve al usuario.",
+      "notesInFlow": true
+    },
+    {
+      "id": "f0f58a6d-5d4c-40b9-a28e-cc713ebfdb3e",
+      "name": "Registrar pendiente",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Evaluar y preparar').first().json.id }}",
+            "creado_en": "={{ $('Evaluar y preparar').first().json.creado_en }}",
+            "chat_id": "={{ $('Evaluar y preparar').first().json.chat_id }}",
+            "nombre": "={{ $('Evaluar y preparar').first().json.nombre }}",
+            "contacto": "={{ $('Evaluar y preparar').first().json.contacto }}",
+            "motivo": "={{ $('Evaluar y preparar').first().json.motivo }}",
+            "motivo_otro": "={{ $('Evaluar y preparar').first().json.motivo_otro }}",
+            "fecha": "={{ $('Evaluar y preparar').first().json.fecha }}",
+            "hora": "={{ $('Evaluar y preparar').first().json.hora }}",
+            "personas": "={{ $('Evaluar y preparar').first().json.personas }}",
+            "estado": "={{ $('Evaluar y preparar').first().json.estado }}",
+            "nota_staff": "={{ $('Evaluar y preparar').first().json.nota_staff }}",
+            "event_id": "",
+            "csat_enviado": "={{ $('Evaluar y preparar').first().json.csat_enviado }}",
+            "csat_score": "={{ $('Evaluar y preparar').first().json.csat_score }}",
+            "csat_comentario": "={{ $('Evaluar y preparar').first().json.csat_comentario }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "position": [
+        1080,
+        380
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: agrega la fila pendiente_aprobacion (no bloquea el horario).",
+      "notesInFlow": true
+    },
+    {
+      "id": "d7b41f82-fef7-4592-a8dd-7ec832942f6f",
+      "name": "Avisar staff",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $('Evaluar y preparar').first().json.staff_chat_id }}",
+        "text": "={{ 'Nueva solicitud de grupo (' + $('Evaluar y preparar').first().json.personas + ' personas)\\n' + $('Evaluar y preparar').first().json.nombre + ' · ' + $('Evaluar y preparar').first().json.contacto + '\\nMotivo: ' + $('Evaluar y preparar').first().json.motivo + '\\nFecha: ' + $('Evaluar y preparar').first().json.fecha + ' ' + $('Evaluar y preparar').first().json.hora + '\\n\\nAprobar: ' + $('Evaluar y preparar').first().json.url_aprobacion + '?id=' + $('Evaluar y preparar').first().json.id + '&d=aprobar\\nRechazar: ' + $('Evaluar y preparar').first().json.url_aprobacion + '?id=' + $('Evaluar y preparar').first().json.id + '&d=rechazar' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "position": [
+        1320,
+        380
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "webhookId": "8a879e1f-c3b8-4f7f-915d-afdf6b445630",
+      "notes": "Telegram: manda al staff los links de aprobar y rechazar.",
+      "notesInFlow": true
+    },
+    {
+      "id": "6c90d406-b918-47ce-955a-b4a1e7611e03",
+      "name": "Respuesta pendiente",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "41be57a3-7b3b-4a32-9a8b-0b694c8be917",
+              "name": "estado",
+              "value": "pendiente_aprobacion",
+              "type": "string"
+            },
+            {
+              "id": "8a5c3316-4a1f-49c8-920c-6bf328b82422",
+              "name": "id",
+              "value": "={{ $('Evaluar y preparar').first().json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "45f7ea3c-c0e9-4dc8-b1ee-575b851971bb",
+              "name": "fecha",
+              "value": "={{ $('Evaluar y preparar').first().json.fecha }}",
+              "type": "string"
+            },
+            {
+              "id": "a422b16f-8985-4471-86fc-c58955c937fe",
+              "name": "hora",
+              "value": "={{ $('Evaluar y preparar').first().json.hora }}",
+              "type": "string"
+            },
+            {
+              "id": "720751ac-8f0c-48b6-bf6d-84b176b6ab54",
+              "name": "aviso_staff",
+              "value": "enviado",
+              "type": "string"
+            },
+            {
+              "id": "e4340a8a-37a4-4a24-98da-845edccc9034",
+              "name": "mensaje",
+              "value": "={{ 'Los grupos de más de ' + $('Evaluar y preparar').first().json.umbral + ' personas requieren aprobación del equipo. La solicitud quedó registrada y avisamos por este chat cuando se resuelva.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        1560,
+        300
+      ],
+      "notes": "Avisa al usuario que su solicitud espera aprobación.",
+      "notesInFlow": true
+    },
+    {
+      "id": "f6e9bec8-cd53-4f63-a12c-818d83e263a8",
+      "name": "Respuesta pendiente (sin aviso)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f8e9798a-3a97-4641-a302-8d327e836f07",
+              "name": "estado",
+              "value": "pendiente_aprobacion",
+              "type": "string"
+            },
+            {
+              "id": "5f4c73e5-9d89-4236-bbd2-b797375fb1c7",
+              "name": "id",
+              "value": "={{ $('Evaluar y preparar').first().json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "b368abf6-e238-485f-92f1-9b631fa52f45",
+              "name": "fecha",
+              "value": "={{ $('Evaluar y preparar').first().json.fecha }}",
+              "type": "string"
+            },
+            {
+              "id": "00971890-d9bb-499a-a896-3a3ec090f49a",
+              "name": "hora",
+              "value": "={{ $('Evaluar y preparar').first().json.hora }}",
+              "type": "string"
+            },
+            {
+              "id": "830f70d7-06aa-4469-bbd5-2a4e62e0cecf",
+              "name": "aviso_staff",
+              "value": "fallo",
+              "type": "string"
+            },
+            {
+              "id": "61f81f58-1c25-4950-98a3-058b5b13d410",
+              "name": "mensaje",
+              "value": "La solicitud quedó registrada como pendiente, pero no se pudo notificar al equipo. Indicale a la persona que el equipo la va a contactar y que si no recibe respuesta en 24 h escriba de nuevo.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        1560,
+        460
+      ],
+      "notes": "Igual, si falló el aviso al staff: la solicitud igual queda registrada.",
+      "notesInFlow": true
+    },
+    {
+      "id": "69e6b1a7-7e78-45cd-b5a4-b90b9d5332dc",
+      "name": "Respuesta no disponible",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "19821dd0-69e2-4a58-a67d-950feb4523d1",
+              "name": "estado",
+              "value": "no_disponible",
+              "type": "string"
+            },
+            {
+              "id": "fb407cca-258a-4bef-947a-a8f85f0c89c5",
+              "name": "motivo",
+              "value": "={{ $json.motivo }}",
+              "type": "string"
+            },
+            {
+              "id": "f189ee0b-4d8b-4ef6-8921-ff6a92e001ee",
+              "name": "slots_libres",
+              "value": "={{ $json.slots_libres }}",
+              "type": "string"
+            },
+            {
+              "id": "f077cdd9-761c-4950-be5a-fc32808323bb",
+              "name": "mensaje",
+              "value": "={{ 'Ese horario ya no está disponible (' + $json.motivo + '). Horarios libres para esa fecha: ' + ($json.slots_libres || 'ninguno') + '. Ofrecé uno de estos u otra fecha.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        1080,
+        800
+      ],
+      "notes": "El horario ya no está libre: se ofrecen alternativas.",
+      "notesInFlow": true
+    },
+    {
+      "id": "ec286019-8d43-4757-877d-9b10fd228a2a",
+      "name": "Respuesta datos incompletos",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0ddef5ed-3284-4c94-a9b5-907827ac2dcb",
+              "name": "estado",
+              "value": "datos_incompletos",
+              "type": "string"
+            },
+            {
+              "id": "28d164c8-010c-4f4f-bd90-5a99e7b0cda3",
+              "name": "mensaje",
+              "value": "={{ 'No se registró la reserva. Falta o es inválido: ' + $json.faltan + '. Pedíselo a la persona y volvé a intentar.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        1320,
+        800
+      ],
+      "notes": "Falta contacto u otro dato: no se crea ninguna fila.",
+      "notesInFlow": true
+    },
+    {
+      "id": "630558b3-cc3d-452b-a17a-335ddbf8af01",
+      "name": "Nota: B2 resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -140
+      ],
+      "parameters": {
+        "content": "# ✅ B2 · Reserva\n\nLa llama el agente con **crear_reserva** cuando la persona ya confirmó el resumen.\n\n**El LLM propone, este flujo decide.** Vuelve a consultar B1 en ese momento y solo reserva un horario que siga libre.\n\n**Cuatro salidas**\n- `confirmada`\n- `pendiente_aprobacion` (más de umbral_grupo personas)\n- `no_disponible` (devuelve horarios libres)\n- `datos_incompletos`\n\nCada salida termina en un **mensaje** que el agente usa para responder.\n\n**Límite conocido:** entre revalidar y crear el evento pasan segundos; dos reservas exactamente simultáneas podrían chocar.",
+        "width": 380,
+        "height": 1080,
+        "color": 7
+      }
+    },
+    {
+      "id": "744534b4-46ab-4af3-aba0-222c47c481cc",
+      "name": "Nota: B2 decidir",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        140
+      ],
+      "parameters": {
+        "content": "## 1 · Revalidar y decidir\nConsulta B1 de nuevo, normaliza la hora (10 → 10:00), valida nombre, contacto y motivo, y decide el estado.\nEl **Switch** reparte según el estado.",
+        "width": 1020,
+        "height": 360,
+        "color": 5
+      }
+    },
+    {
+      "id": "64f403ed-94a0-4db3-8086-47ace215ecb9",
+      "name": "Nota: B2 confirmada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -140
+      ],
+      "parameters": {
+        "content": "## 2a · Confirmada\nCrea el evento en el calendario Brújula y registra la fila con su `event_id`.",
+        "width": 760,
+        "height": 260,
+        "color": 4
+      }
+    },
+    {
+      "id": "82d4ceb2-7d41-45e3-9ad7-3da9194e663a",
+      "name": "Nota: B2 pendiente",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        140
+      ],
+      "parameters": {
+        "content": "## 2b · Grupo grande: pendiente\nRegistra la fila y avisa a quien aprueba (staff_chat_id) con links de aprobar y rechazar. **No bloquea el horario** (diseño B).\nSi el aviso falla, la salida de error se lo informa al agente.",
+        "width": 760,
+        "height": 480,
+        "color": 2
+      }
+    },
+    {
+      "id": "6acd9b05-17cf-4ad2-977d-2dd6aafa1e96",
+      "name": "Nota: B2 sin reserva",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        640
+      ],
+      "parameters": {
+        "content": "## 2c · Sin reserva\nNo escribe nada en la hoja ni en el calendario. Devuelve el motivo y, si el horario ya no está, los horarios libres para ofrecer otros.",
+        "width": 760,
+        "height": 300,
+        "color": 3
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Entrada": {
+      "main": [
+        [
+          {
+            "node": "Revalidar disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revalidar disponibilidad": {
+      "main": [
+        [
+          {
+            "node": "Evaluar y preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar y preparar": {
+      "main": [
+        [
+          {
+            "node": "Según estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Según estado": {
+      "main": [
+        [
+          {
+            "node": "Crear evento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta no disponible",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta datos incompletos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear evento": {
+      "main": [
+        [
+          {
+            "node": "Registrar confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar confirmada": {
+      "main": [
+        [
+          {
+            "node": "Respuesta confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar pendiente": {
+      "main": [
+        [
+          {
+            "node": "Avisar staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar staff": {
+      "main": [
+        [
+          {
+            "node": "Respuesta pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta pendiente (sin aviso)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "binaryMode": "separate",
+    "errorWorkflow": "ea1BObEQv5JQLT7a"
+  },
+  "versionId": "3015eb11-d275-45a1-908c-ea0cf8074aba",
+  "meta": {},
+  "id": "fPViv6kyUybPTiPl",
+  "tags": []
+}
