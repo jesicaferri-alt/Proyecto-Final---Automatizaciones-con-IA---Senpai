@@ -1,0 +1,1949 @@
+{
+  "name": "Brújula – Principal",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "7a7fe96d-c912-4f54-919d-0fe775ffb6da",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        320
+      ],
+      "notesInFlow": true,
+      "webhookId": "75aea3de-24dd-4a8c-b2f4-9269c0f8ce26",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Entrada: cada mensaje o botón que llega al bot de Telegram."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5af2b3fc-62a2-4116-8dc7-884549478531",
+              "leftValue": "={{ String($json.message?.reply_to_message?.text || '').startsWith('💬 ¿Qué podemos mejorar') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e0629ac4-4fbf-438a-9c3f-53f76e6a56d1",
+      "name": "¿Es comentario del CSAT?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        176,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "chat_id",
+              "lookupValue": "={{ $json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "45de21d5-bd82-4319-a6c3-aba974f33391",
+      "name": "Buscar visitas del chat",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        544,
+        -560
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "41ee3bc6-8bbd-4306-90d3-16a602365725",
+      "name": "Leer config (comentario)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        784,
+        -560
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Qué hace: relaciona el comentario con la visita y arma la respuesta.\n// La persona contestó al mensaje \"¿Qué podemos mejorar?\". Buscamos SU visita más reciente\n// que ya tiene puntaje bajo (<= csat_comentario_max) y todavía no tiene comentario.\nconst msg = $('Telegram Trigger').first().json.message;\nconst cfg = {};\nfor (const it of $('Leer config (comentario)').all()) { if (it.json.clave) cfg[it.json.clave] = String(it.json.valor); }\nconst maxCom = parseInt(cfg.csat_comentario_max || '3');\nconst umbralAlerta = parseInt(cfg.csat_alerta_max || '2');\nconst comentario = String(msg.text || '').trim().slice(0, 500);\nconst filas = $('Buscar visitas del chat').all().map(i => i.json).filter(f => f && f.id);\nconst cand = filas\n  .filter(f => String(f.csat_score ?? '').trim() !== '' && Number(f.csat_score) <= maxCom && String(f.csat_comentario ?? '').trim() === '')\n  .sort((a, b) => String(b.creado_en).localeCompare(String(a.creado_en)))[0];\nlet guardar = false, respuesta;\nif (!comentario) respuesta = 'Solo puedo guardar comentarios escritos. Si querés, respondé al mensaje anterior con un texto.';\nelse if (!cand) respuesta = 'Ya tenemos tu comentario, ¡gracias!';\nelse { guardar = true; respuesta = '¡Gracias por contarnos! Lo vamos a tener en cuenta.'; }\nconst score = cand ? Number(cand.csat_score) : null;\nconst alertar = guardar && score <= umbralAlerta;\nconst texto = alertar ? [\n  '💬 Comentario de una encuesta con puntaje bajo (' + score + ' de 5)',\n  'Visita: ' + cand.id,\n  'Quién: ' + (cand.nombre || '-') + ' (' + (cand.contacto || 'sin contacto') + ')',\n  '',\n  'Dijo: ' + comentario\n].join('\\n') : '';\nreturn [{ json: { guardar, respuesta, id: cand ? cand.id : '', comentario, chat_id: msg.chat.id, alertar, texto, staff_chat_id: cfg.staff_chat_id || '' } }];"
+      },
+      "id": "c25e797b-d836-47da-a979-d88aa9115211",
+      "name": "Preparar comentario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e5569eb-1834-476f-80b1-489f7869357a",
+              "leftValue": "={{ $json.guardar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "04516a23-b12a-41b4-b854-3e0fae1491a0",
+      "name": "¿Hay visita para guardar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1264,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Preparar comentario').first().json.id }}",
+            "csat_comentario": "={{ $('Preparar comentario').first().json.comentario }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "0b9db97e-4f2e-4110-bf00-3825a1d59180",
+      "name": "Guardar comentario",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1504,
+        -640
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Preparar comentario').first().json.chat_id }}",
+        "text": "={{ $('Preparar comentario').first().json.respuesta }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "c2f00a30-c360-4f79-bb3d-f46f024f8d13",
+      "name": "Agradecer comentario",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1744,
+        -560
+      ],
+      "webhookId": "26531ba9-104f-465a-a452-ff900f83fa4e",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c7e42a44-d195-4fa2-8414-7c6d92fcf68e",
+              "leftValue": "={{ $('Preparar comentario').first().json.alertar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ee7eb24a-049b-40c1-b2c1-528d30de273b",
+      "name": "¿Avisar el comentario al staff?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1984,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Preparar comentario').first().json.staff_chat_id }}",
+        "text": "={{ $('Preparar comentario').first().json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d5aa1bc3-70ed-4c21-bbc0-2fbbefa39e80",
+      "name": "Avisar comentario al staff",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2224,
+        -560
+      ],
+      "retryOnFail": true,
+      "webhookId": "fb271eea-4f38-4d52-aae8-722d5db070f7",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4e2a1b91-efc0-4c5a-b83e-024b4df77c53",
+              "leftValue": "={{ !!$json.callback_query }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8e4aae03-c6dd-49f9-bddc-15182e426174",
+      "name": "¿Es respuesta de encuesta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        352,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Separa los toques en botones de la encuesta CSAT de la conversación normal."
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callback_query.id }}",
+        "additionalFields": {
+          "text": "¡Gracias!"
+        }
+      },
+      "id": "13408fca-66c6-4177-8007-7f80721e37ed",
+      "name": "Responder callback",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        544,
+        32
+      ],
+      "notesInFlow": true,
+      "webhookId": "b39948a9-b954-4ae3-a9ca-6436b47ad06c",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Contesta el toque al instante (saca el 'cargando' del botón) antes de cualquier otro paso, para que la persona no vuelva a tocar."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lee el toque del botón directo del trigger (el nodo anterior solo contestó el callback).\nconst cb = $('Telegram Trigger').first().json.callback_query;\nconst p = String(cb.data || '').split('|');\nconst score = Number(p[2]);\n// Texto con el que queda la encuesta una vez respondida (sin botones).\n// Es fijo a propósito: si llegan varios toques a la vez, todos intentan la MISMA edición\n// y Telegram solo acepta la primera (\"message is not modified\" para el resto).\nconst MARCA = '✅ Calificación registrada.';\nconst original = String((cb.message && cb.message.text) || '');\nconst texto_cerrado = original.includes(MARCA) ? original : (original ? original + '\\n\\n' + MARCA : MARCA);\nreturn [{ json: {\n  valido: p[0] === 'csat' && p.length === 3 && Number.isInteger(score) && score >= 1 && score <= 5,\n  id: p[1], score: score, query_id: cb.id,\n  chat_id: cb.message.chat.id, message_id: cb.message.message_id,\n  texto_cerrado: texto_cerrado\n} }];"
+      },
+      "id": "5fbb8d3e-525d-42c9-8202-0f70e022d3e3",
+      "name": "Parsear callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        32
+      ],
+      "notesInFlow": true,
+      "notes": "Code: lee el callback (id de visita + puntaje 1 a 5), valida el formato y arma el texto con el que se cierra la encuesta."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bd699140-d082-47c4-b854-2af3daad893a",
+              "leftValue": "={{ $('Parsear callback').first().json.valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0c78e9bb-0fec-4da9-93a7-c77e7ae3a966",
+      "name": "¿Callback válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1024,
+        32
+      ],
+      "notesInFlow": true,
+      "notes": "Si el callback viene mal formado no toca la hoja."
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Parsear callback').first().json.chat_id }}",
+        "messageId": "={{ $('Parsear callback').first().json.message_id }}",
+        "text": "={{ $('Parsear callback').first().json.texto_cerrado }}",
+        "additionalFields": {}
+      },
+      "id": "a88e94d1-197e-4f98-81c1-0b09f9564a3f",
+      "name": "Quitar botones",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1264,
+        32
+      ],
+      "notesInFlow": true,
+      "webhookId": "94d47574-9fd3-4263-ae15-09d38ec083d3",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Saca los botones y marca la encuesta como respondida. Es también el candado: si llegan varios toques a la vez, solo el primero logra editar; Telegram rechaza el resto y esos se cortan."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{ $('Parsear callback').first().json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6119b77-52bf-441e-bf32-cbe0c4dfe362",
+      "name": "Buscar visita",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1744,
+        32
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "aa6b6753-3d54-4aec-a8e2-7372e42e203a",
+              "leftValue": "={{ String($json.error ?? '').toLowerCase().includes('not modified') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "08459ad5-3559-4eb1-b07c-cbd53de296b1",
+      "name": "¿Toque repetido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1504,
+        112
+      ],
+      "notesInFlow": true,
+      "notes": "Telegram no dejó editar. Si es 'not modified', otro toque ya cerró la encuesta: se corta acá. Si es otro error, se guarda igual el puntaje."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bd4c9524-2b8b-47d2-86ac-5850b688bb42",
+              "leftValue": "={{ !!$json.id && String($json.csat_score ?? '').trim() === '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "444051a7-fefa-4b51-acf3-09a3c6ce7293",
+      "name": "¿Primera respuesta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1984,
+        32
+      ],
+      "notesInFlow": true,
+      "notes": "Solo guarda si la visita existe y todavía no tiene puntaje: vale el primer voto."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Parsear callback').first().json.id }}",
+            "csat_score": "={{ $('Parsear callback').first().json.score }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f24037f6-a778-4350-940a-5be54701438e",
+      "name": "Guardar puntaje",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1984,
+        32
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: guarda csat_score en la fila de esa visita."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parsear callback').first().json.chat_id }}",
+        "text": "¡Gracias por tu valoración! Nos ayuda a mejorar.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "50005e67-7d4f-4fd9-a2cd-d1804ce19b45",
+      "name": "Agradecer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2224,
+        32
+      ],
+      "notesInFlow": true,
+      "webhookId": "8c452979-9d2f-4a8f-ae49-3adba92b55fc",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Mensaje de agradecimiento tras puntuar."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "f5ab7b81-5238-42d2-a8eb-e1d7c59fc1e5",
+      "name": "Leer config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2464,
+        32
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide si hay que alertar al staff por un puntaje bajo.\n// Alerta solo si: la visita existe, el puntaje es <= csat_alerta_max (hoja config)\n// y la fila NO tenía puntaje antes. Así, si la persona toca otro botón después,\n// no se manda una segunda alerta.\nconst cfg = {};\nfor (const it of $('Leer config').all()) { if (it.json.clave) cfg[it.json.clave] = String(it.json.valor); }\nconst umbral = parseInt(cfg.csat_alerta_max || '2');\nconst cb = $('Parsear callback').first().json;\nconst fila = $('Buscar visita').first().json || {};\nconst yaTeniaPuntaje = String(fila.csat_score ?? '').trim() !== '';\nconst alertar = !!fila.id && cb.score <= umbral && !yaTeniaPuntaje;\n// Pedir comentario: puntaje <= csat_comentario_max (config) y primera vez que responde.\nconst maxCom = parseInt(cfg.csat_comentario_max || '3');\nconst pedirComentario = !!fila.id && cb.score <= maxCom && !yaTeniaPuntaje;\nconst texto = [\n  '⚠️ Encuesta con puntaje bajo: ' + cb.score + ' de 5',\n  'Visita: ' + (fila.id || cb.id),\n  'Quién: ' + (fila.nombre || '-') + ' (' + (fila.contacto || 'sin contacto') + ')',\n  'Fecha de la visita: ' + (fila.fecha || '-') + ' ' + (fila.hora || ''),\n  'Personas: ' + (fila.personas || '-') + ' · Motivo: ' + (fila.motivo || '-'),\n  '',\n  'Conviene contactarla para entender qué pasó.'\n].join('\\n');\nreturn [{ json: { pedir_comentario: pedirComentario, chat_id: cb.chat_id, alertar, texto, staff_chat_id: cfg.staff_chat_id || '', score: cb.score, umbral, ya_tenia_puntaje: yaTeniaPuntaje } }];"
+      },
+      "id": "e62d6e95-8280-4c38-b329-cb7ecc442be5",
+      "name": "Preparar alerta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5a0ddbb7-4862-4323-9753-6c5dbff7aebd",
+              "leftValue": "={{ $json.alertar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6a1225ed-21b9-4fed-9773-7bb213b66564",
+      "name": "¿Puntaje bajo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2944,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.staff_chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "cdd9a0a9-677b-45e9-b558-535c8fee4422",
+      "name": "Avisar CSAT bajo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3184,
+        16
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "webhookId": "4ad5b372-6c54-4a24-9842-c1ddbec62182",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5f5de6c6-f1d5-4d1d-8f03-3de85fd6bdd3",
+              "leftValue": "={{ $json.pedir_comentario }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "569f88cd-7114-4c45-823e-7e9e74edf341",
+      "name": "¿Pedir comentario?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2944,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "💬 ¿Qué podemos mejorar? Contanos en un mensaje, respondiendo a este (es opcional).",
+        "replyMarkup": "forceReply",
+        "forceReply": {
+          "force_reply": true
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a36343b3-8b69-4cd5-8ce5-88a4d5fb0cba",
+      "name": "Pedir comentario",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3184,
+        352
+      ],
+      "retryOnFail": true,
+      "webhookId": "0b36bfa8-175c-4a2d-baf8-71a1cc4b0fe4",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text || 'El usuario envió un mensaje sin texto.' }}",
+        "options": {
+          "systemMessage": "=Te llamás Brújula y sos la asistente virtual del Laboratorio de Innovación Educativa (presentate solo como \"Brújula\"). Tu trabajo es agendar visitas al laboratorio conversando con la persona por Telegram. Tono: cálido pero profesional, claro y breve. Usá siempre voseo rioplatense (vos, querés, confirmás, podés); nunca tuteo (tú, quieres, confirmas). Escribí en texto plano para Telegram: sin markdown, sin asteriscos ni numerales; para listas usá guiones simples. Hoy es {{ $now.setZone('America/Montevideo').setLocale('es').toFormat(\"cccc d 'de' LLLL 'de' yyyy\") }} ({{ $now.setZone('America/Montevideo').toFormat('yyyy-MM-dd HH:mm') }}, hora de Montevideo). Cuando la persona da una fecha sin año, es la próxima vez que ocurre esa fecha. No comentes si una fecha es futura o pasada: eso lo resuelve consultar_disponibilidad.\nCalendario de referencia (usalo para traducir expresiones como \"mañana\" o \"la semana que viene\" a fechas; no hagas cuentas propias):\n- mañana: {{ $now.setZone('America/Montevideo').plus({days:1}).toFormat('yyyy-MM-dd') }}\n- esta semana: de {{ $now.setZone('America/Montevideo').startOf('week').toFormat('yyyy-MM-dd') }} a {{ $now.setZone('America/Montevideo').startOf('week').plus({days:4}).toFormat('yyyy-MM-dd') }}\n- la semana que viene: de {{ $now.setZone('America/Montevideo').startOf('week').plus({weeks:1}).toFormat('yyyy-MM-dd') }} a {{ $now.setZone('America/Montevideo').startOf('week').plus({weeks:1, days:4}).toFormat('yyyy-MM-dd') }}\n- en dos semanas: de {{ $now.setZone('America/Montevideo').startOf('week').plus({weeks:2}).toFormat('yyyy-MM-dd') }} a {{ $now.setZone('America/Montevideo').startOf('week').plus({weeks:2, days:4}).toFormat('yyyy-MM-dd') }}\n\nEl laboratorio recibe visitas de lunes a viernes, de 9 a 12 y de 13 a 17, en turnos de una hora. Se puede reservar con al menos 24 horas de anticipación y hasta 15 días hábiles. Podés contarle esto a la persona, pero los horarios concretos siempre salen de consultar_disponibilidad.\n\nPasos, de a una pregunta por vez y sin repetir lo que ya te dijeron:\n1. Motivo de la visita: recorrido, centro_educativo, institucional, taller u otro (si es otro, pedí una breve descripción).\n2. Fecha deseada o rango de fechas.\n3. Cantidad de personas.\n4. Apenas tengas fecha y cantidad de personas, llamá a consultar_disponibilidad, antes de pedir nombre o contacto. Si todavía no sabés cuántas personas son, preguntalo primero: nunca consultes con una cantidad supuesta.\n5. Ofrecé los horarios y esperá que la persona elija día y hora.\n6. Nombre y un contacto (mail o teléfono).\n7. Resumen y confirmación.\n\nReglas estrictas:\n- REGLA DE CONFIRMACIÓN (la más importante): crear_reserva se llama únicamente en el turno siguiente a que la persona respondió que sí (sí, confirmo, dale, ok) a un resumen completo que mostraste en tu mensaje anterior. Cuando recibís la hora o el último dato que falta, tu respuesta es SOLO el resumen con la pregunta \"¿Confirmo la reserva?\". Nunca llames a crear_reserva en el mismo turno en que recibís la hora, el nombre o el contacto, ni digas que la visita está confirmada antes de que crear_reserva responda. El resumen empieza con \"Te paso el resumen para confirmar:\" y no dice que la visita está reservada ni confirmada.\n- Nunca decidas ni inventes disponibilidad, y nunca digas por tu cuenta que una fecha ya pasó, que es fin de semana o que está fuera de plazo: eso lo dice solo consultar_disponibilidad. Si la persona es flexible, consultá el rango completo en una sola llamada (fecha y fecha_hasta) en lugar de día por día.\n- Ofrecé únicamente los días y horarios que vienen en opciones. Escribí cada día con su dia_semana tal cual viene (por ejemplo \"viernes 16 de octubre\"); nunca calcules vos el día de la semana. Un día que no está en opciones no se ofrece nunca.\n- Si opciones viene vacío y hay un campo explicacion general, ese es el único motivo: decilo con esas mismas palabras y no agregues otros. Tu respuesta es esa explicacion copiada textual y cerrás con \"¿Querés ajustar la cantidad de personas o elegir otra fecha?\". No agregues nada más: nunca propongas dividir un grupo ni hacer varias reservas (por ejemplo, si el problema es la cantidad de personas, no hables de la fecha). Si no hay explicacion general, usá la explicacion de cada día y proponé otra fecha. Si preguntan hasta cuándo se puede reservar, usá reservable_hasta_texto.\n- Antes de reservar, mostrá un resumen con motivo, día (con su dia_semana), hora, personas, nombre y contacto, y pedí confirmación explícita. Si falta la hora, no hagas el resumen: primero ofrecé los horarios. Recién ahí llamá a crear_reserva.\n- crear_reserva vuelve a verificar el horario. Respondé según su campo estado y su mensaje: confirmada (confirmá la visita), pendiente_aprobacion (aclará que los grupos grandes requieren aprobación del equipo y que avisaremos por este chat), no_disponible (el horario se ocupó: ofrecé los slots_libres que devuelve) o datos_incompletos (pedí lo que falta).\n- Si no sabés algo, decilo; no inventes datos del laboratorio. No pidas datos que no sean los listados. Ante cualquier otro tema, redirigí amablemente al agendamiento de visitas.\n- No inventes opciones ni excepciones que el laboratorio no ofrece (por ejemplo, dividir un grupo en varias reservas). Si algo no se puede, explicá el motivo y ofrecé solo lo que sí podés hacer: elegir otra fecha o ajustar la cantidad de personas.\n- Si la fecha y la cantidad de personas no cambiaron desde la última consulta, no vuelvas a llamar a consultar_disponibilidad: seguí con el día y la hora que la persona ya vio. Si te dan nombre y contacto antes de elegir la hora, agradecé, guardalos y pedí la hora entre las opciones que ya ofreciste."
+        }
+      },
+      "id": "70a4d5a0-6961-4ab5-b4d1-ea70ccfced7d",
+      "name": "Agente Brújula",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        608,
+        432
+      ],
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "El LLM conversa y extrae los datos; no decide reglas. Las decisiones las toman los sub-workflows."
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.4-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5.4-mini"
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "cb37ac26-82c7-49bd-b256-3db121aad9cb",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        544,
+        640
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "openAiApi": {
+          "id": "iI3RzOiIkhrcXLZ7",
+          "name": "OpenAI account"
+        }
+      },
+      "notes": "Modelo gpt-4o-mini. Credencial guardada en n8n."
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "contextWindowLength": 15
+      },
+      "id": "f5a8dc0b-c9e6-4d29-b4e2-36cfd65c78e1",
+      "name": "Memoria de conversación",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        640
+      ],
+      "notesInFlow": true,
+      "notes": "Recuerda los últimos mensajes por chat para no repetir preguntas."
+    },
+    {
+      "parameters": {
+        "description": "Consulta horarios libres. Llamala apenas tengas fecha y cantidad de personas. Para una fecha puntual pasá solo fecha; si la persona es flexible (por ejemplo 'la semana que viene') pasá fecha y fecha_hasta (máximo 21 días) en una sola llamada. Devuelve opciones[] (solo los días con horarios, con dia_semana ya escrito y horarios: es lo único que se ofrece), dias[] con explicacion cuando un día no tiene horarios, y reservable_hasta_texto.",
+        "workflowId": {
+          "__rl": true,
+          "value": "JRjFMBZU6MEQLoUa",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fecha": "={{ $fromAI('fecha','Fecha inicial aaaa-mm-dd','string') }}",
+            "fecha_hasta": "={{ $fromAI('fecha_hasta','Fecha final aaaa-mm-dd para un rango; vacío si es un solo día','string') }}",
+            "personas": "={{ $fromAI('personas','Cantidad de personas','number') }}",
+            "ignorar_anticipacion": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "fecha_hasta",
+              "displayName": "fecha_hasta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "ignorar_anticipacion",
+              "displayName": "ignorar_anticipacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "7d017d82-3755-4750-bf1b-e24a0f18af53",
+      "name": "consultar_disponibilidad",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        912,
+        640
+      ],
+      "notesInFlow": true,
+      "notes": "Herramienta del agente: llama al sub-workflow B1 (disponibilidad)."
+    },
+    {
+      "parameters": {
+        "description": "Registra la visita una vez que la persona confirmó el resumen. Vuelve a verificar disponibilidad. Devuelve estado: confirmada, pendiente_aprobacion (grupos grandes), no_disponible (el horario se ocupó; trae slots_libres) o datos_incompletos (trae faltan). Siempre seguí el campo mensaje.",
+        "workflowId": {
+          "__rl": true,
+          "value": "fPViv6kyUybPTiPl",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chat_id": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+            "nombre": "={{ $fromAI('nombre','Nombre de la persona','string') }}",
+            "contacto": "={{ $fromAI('contacto','Mail o teléfono','string') }}",
+            "motivo": "={{ $fromAI('motivo','Uno de: recorrido, centro_educativo, institucional, taller, otro','string') }}",
+            "motivo_otro": "={{ $fromAI('motivo_otro','Descripción si el motivo es otro; vacío si no','string') }}",
+            "fecha": "={{ $fromAI('fecha','Fecha aaaa-mm-dd','string') }}",
+            "hora": "={{ $fromAI('hora','Hora HH:MM de uno de los slots libres','string') }}",
+            "personas": "={{ $fromAI('personas','Cantidad de personas','number') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "11ede821-a68c-4857-98ab-4d51516cc7bf",
+      "name": "crear_reserva",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1088,
+        640
+      ],
+      "notesInFlow": true,
+      "notes": "Herramienta del agente: llama al sub-workflow B2 (reserva)."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "={{ String($json.output || 'Perdón, tuve un problema técnico. ¿Me lo repetís en un momento?').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "29b78098-bf08-40c6-801d-f718d5219bb0",
+      "name": "Responder en Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1072,
+        432
+      ],
+      "notesInFlow": true,
+      "webhookId": "158f9f05-f8cb-4749-ba0f-441dbc1c4d4b",
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Envía la respuesta del agente al usuario."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ce0c9c76-4a30-4575-b7c5-2ed8e1fe2e89",
+              "leftValue": "={{ !$('Agente Brújula').first().json.output }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3ba9b58e-91d1-49c4-a945-8d9ad0455f59",
+      "name": "¿Falló el agente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1312,
+        432
+      ],
+      "notesInFlow": true,
+      "notes": "Si el agente no devolvió respuesta (por ejemplo, falló OpenAI), la persona ya recibió la disculpa; acá se avisa al equipo."
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ 'El agente no pudo responder; la persona recibió el mensaje de disculpa. ' + ($('Agente Brújula').first().json.error ? 'Detalle: ' + String($('Agente Brújula').first().json.error).slice(0, 400) : 'Abrí la ejecución para ver qué falló (OpenAI, memoria o herramientas).') }}"
+      },
+      "id": "1873d93c-5164-4916-91ba-34f8c180683e",
+      "name": "Avisar falla del agente",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        432
+      ],
+      "notesInFlow": true,
+      "notes": "Marca la ejecución como fallida para que «Brújula – Errores» avise al staff por Telegram."
+    },
+    {
+      "parameters": {
+        "content": "# 🧭 Brújula · Principal\n\nPunto de entrada del bot de Telegram.\n\n**Qué hace**\n- Si llega un **toque de botón** de la encuesta, guarda el puntaje y, si es bajo, avisa al staff.\n- Si llega la **respuesta a \"¿Qué podemos mejorar?\"**, guarda el comentario de la encuesta.\n- Si llega cualquier otro **mensaje**, conversa el agente.\n\n**Regla de oro**\nEl agente conversa y propone. La disponibilidad la decide **B1** y la reserva **B2**.\n\n**Tools del agente**\n- `consultar_disponibilidad` → B1\n- `crear_reserva` → B2\n\n**Modelo:** OpenAI gpt-4o-mini\n**Memoria:** últimos 15 mensajes por chat",
+        "height": 1000,
+        "width": 380,
+        "color": 7
+      },
+      "id": "30cddb75-0c4c-4420-b22b-679468072195",
+      "name": "Nota: Principal resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1 · Entrada\nTelegram manda mensajes y toques de botones. Primero se mira si el mensaje es la **respuesta a \"¿Qué podemos mejorar?\"** (comentario de la encuesta). Si no, el segundo IF separa la **encuesta** de la **conversación**.",
+        "height": 320,
+        "width": 460,
+        "color": 5
+      },
+      "id": "c73cb9a9-0f0c-4dab-89b1-2ed42c638d5e",
+      "name": "Nota: Principal entrada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 · Respuesta a la encuesta\nEl botón trae `csat|id|puntaje`. Primero se contesta el toque (el botón deja de girar), después se valida el formato.\n**Quitar botones** edita la encuesta: saca los botones y agrega \"Calificación registrada\". Funciona como candado: si la persona toca varias veces seguidas, solo el primer toque pasa; Telegram rechaza los demás.\n**Vale el primer voto:** si la visita ya tiene puntaje, no se pisa.\nSi el puntaje es bajo, además de agradecer pide un comentario (tramo 4b y 5).",
+        "height": 340,
+        "width": 1880,
+        "color": 6
+      },
+      "id": "82fba093-9ceb-4438-9445-b0f331d05dd7",
+      "name": "Nota: Principal encuesta",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3 · Conversación con el agente\nTriage: motivo → fecha → personas → **consulta B1** → elige día y hora → nombre y contacto → resumen → confirmación.\nEl agente **solo ofrece lo que B1 devuelve en `opciones`**, con el día de la semana que viene escrito desde B1 (el modelo lo calculaba mal y llegó a ofrecer sábados). Si no hay opciones, repite la `explicacion` de B1.\nSi el agente falla, responde una disculpa en vez de quedarse callado **y avisa al staff** (la ejecución queda en error y salta «Brújula – Errores»).",
+        "height": 620,
+        "width": 1300,
+        "color": 4
+      },
+      "id": "6110eb10-3d49-430a-b615-751ce64afc09",
+      "name": "Nota: Principal conversación",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4 · Alerta por puntaje bajo\nSi el puntaje es **menor o igual a `csat_alerta_max`** (hoja config, hoy 2), avisa al staff por Telegram con quién fue, qué día y el contacto.\n\n**Solo una vez por visita:** si la fila ya tenía puntaje (la persona tocó otro botón), no vuelve a alertar.\nEl destinatario sale de `staff_chat_id` en config. Para cambiar el umbral o quién recibe, se edita la hoja; no hace falta tocar n8n.",
+        "height": 300,
+        "width": 960,
+        "color": 3
+      },
+      "id": "dd67e968-15ef-45a0-a123-93dfa4e3d55c",
+      "name": "Nota: Principal alerta CSAT",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5 · Comentario de la encuesta\nSi el puntaje es **menor o igual a `csat_comentario_max`** (hoja config, hoy 3), el bot le pide un comentario con un mensaje de *Responder* (Force Reply de Telegram: la persona contesta a ese mensaje).\n\n**Cómo se reconoce:** un mensaje que responde al texto \"¿Qué podemos mejorar?\" no va al agente, entra por esta rama. Cualquier otro mensaje sigue su camino normal.\n**Qué visita es:** la más reciente de ese chat con puntaje bajo y sin comentario. Se guarda en `csat_comentario` (máx. 500 caracteres, como texto).\n**Si el puntaje es 1 o 2** (`csat_alerta_max`), el staff recibe además el comentario.\n**Casos raros:** si responde con un sticker, o ya había comentado, el bot contesta con amabilidad y no guarda nada.",
+        "height": 360,
+        "width": 1772,
+        "color": 6
+      },
+      "id": "097b9f19-67d4-49c4-8151-617c91adb6a4",
+      "name": "Nota: Principal comentario CSAT",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        608,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4b · Pedir el comentario\nDespués de agradecer, si el puntaje es **menor o igual a `csat_comentario_max`**, el bot manda el mensaje *\"¿Qué podemos mejorar?\"*. Como cada encuesta acepta un solo voto, se pide una sola vez. La respuesta se procesa en el tramo 5, arriba.",
+        "height": 300,
+        "width": 700,
+        "color": 3
+      },
+      "id": "29242955-18ad-44d6-9e96-34850afc4af0",
+      "name": "Nota: Principal pedir comentario",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2896,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## ⚠️ No probar este workflow en modo test\nNo uses **Execute workflow** ni **Listen for test event** acá mientras está publicado.\n\nTelegram acepta **un solo webhook por bot**: el modo test le saca el webhook a producción y **el bot deja de recibir mensajes**.\n\nPara probar: despublicar primero (y volver a publicar después) o usar otro bot.",
+        "height": 380,
+        "width": 380,
+        "color": 3
+      },
+      "id": "ed0f5438-51e3-4dda-8103-ba0fda37eec5",
+      "name": "Nota: no probar en modo test",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        -608
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "¿Es comentario del CSAT?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es comentario del CSAT?": {
+      "main": [
+        [
+          {
+            "node": "Buscar visitas del chat",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Es respuesta de encuesta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar visitas del chat": {
+      "main": [
+        [
+          {
+            "node": "Leer config (comentario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer config (comentario)": {
+      "main": [
+        [
+          {
+            "node": "Preparar comentario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar comentario": {
+      "main": [
+        [
+          {
+            "node": "¿Hay visita para guardar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay visita para guardar?": {
+      "main": [
+        [
+          {
+            "node": "Guardar comentario",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Agradecer comentario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar comentario": {
+      "main": [
+        [
+          {
+            "node": "Agradecer comentario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agradecer comentario": {
+      "main": [
+        [
+          {
+            "node": "¿Avisar el comentario al staff?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Avisar el comentario al staff?": {
+      "main": [
+        [
+          {
+            "node": "Avisar comentario al staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es respuesta de encuesta?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Agente Brújula",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback": {
+      "main": [
+        [
+          {
+            "node": "Parsear callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear callback": {
+      "main": [
+        [
+          {
+            "node": "¿Callback válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Callback válido?": {
+      "main": [
+        [
+          {
+            "node": "Quitar botones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quitar botones": {
+      "main": [
+        [
+          {
+            "node": "Buscar visita",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Toque repetido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar visita": {
+      "main": [
+        [
+          {
+            "node": "¿Primera respuesta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Toque repetido?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Buscar visita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Primera respuesta?": {
+      "main": [
+        [
+          {
+            "node": "Guardar puntaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar puntaje": {
+      "main": [
+        [
+          {
+            "node": "Agradecer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agradecer": {
+      "main": [
+        [
+          {
+            "node": "Leer config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer config": {
+      "main": [
+        [
+          {
+            "node": "Preparar alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar alerta": {
+      "main": [
+        [
+          {
+            "node": "¿Puntaje bajo?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "¿Pedir comentario?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Puntaje bajo?": {
+      "main": [
+        [
+          {
+            "node": "Avisar CSAT bajo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Pedir comentario?": {
+      "main": [
+        [
+          {
+            "node": "Pedir comentario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente Brújula": {
+      "main": [
+        [
+          {
+            "node": "Responder en Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente Brújula",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memoria de conversación": {
+      "ai_memory": [
+        [
+          {
+            "node": "Agente Brújula",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_disponibilidad": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente Brújula",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crear_reserva": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente Brújula",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder en Telegram": {
+      "main": [
+        [
+          {
+            "node": "¿Falló el agente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Falló el agente?": {
+      "main": [
+        [
+          {
+            "node": "Avisar falla del agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "America/Montevideo",
+    "errorWorkflow": "ea1BObEQv5JQLT7a"
+  },
+  "versionId": "b8c3d8cf-8ebe-425d-93ee-f6998541fc4f",
+  "meta": {
+    "instanceId": "1cde07f0d1882f670820b76ef26814261325ace7ce51825f3207010121e65ed7"
+  },
+  "nodeGroups": [],
+  "id": "ohxeD2gj1Nr6Papu",
+  "tags": []
+}
