@@ -1,0 +1,215 @@
+{
+  "name": "Brújula – B1 disponibilidad",
+  "nodes": [
+    {
+      "id": "fd2f1b6b-4e9d-4846-9463-0c1463638a81",
+      "name": "Entrada",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "fecha"
+            },
+            {
+              "name": "fecha_hasta"
+            },
+            {
+              "name": "personas",
+              "type": "number"
+            },
+            {
+              "name": "ignorar_anticipacion",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "position": [
+        40,
+        200
+      ],
+      "notes": "Recibe fecha, fecha_hasta y cantidad de personas desde el agente o desde B2/Aprobación.",
+      "notesInFlow": true
+    },
+    {
+      "id": "51d5217f-6921-48d6-8fee-db98f0f1801f",
+      "name": "Leer config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "position": [
+        280,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "alwaysOutputData": true,
+      "notes": "Sheets: lee horarios, anticipación, días hábiles y tope desde la hoja config (única fuente de verdad).",
+      "notesInFlow": true
+    },
+    {
+      "id": "3b2340c4-4cbe-4f53-8c6a-116e70d28abc",
+      "name": "Eventos del rango",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "visitasceibal@gmail.com",
+          "mode": "list",
+          "cachedResultName": "Brújula"
+        },
+        "returnAll": true,
+        "timeMin": "={{ (DateTime.fromISO(String($('Entrada').first().json.fecha)).isValid ? DateTime.fromISO(String($('Entrada').first().json.fecha)) : $now).minus({days: 1}).toISO() }}",
+        "timeMax": "={{ (DateTime.fromISO(String($('Entrada').first().json.fecha_hasta || $('Entrada').first().json.fecha)).isValid ? DateTime.fromISO(String($('Entrada').first().json.fecha_hasta || $('Entrada').first().json.fecha)) : $now).plus({days: 2}).toISO() }}",
+        "options": {}
+      },
+      "position": [
+        520,
+        200
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "R4nVWZHU4E6SqMHQ",
+          "name": "Google Calendar account"
+        }
+      },
+      "alwaysOutputData": true,
+      "notes": "Calendar: trae los eventos ya reservados en el rango pedido.",
+      "notesInFlow": true
+    },
+    {
+      "id": "72c01f3e-4743-477d-8d32-f6eb68101781",
+      "name": "Calcular disponibilidad",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Única fuente de verdad sobre disponibilidad. Devuelve también la config para que nadie más la lea.\nconst inp = $('Entrada').first().json;\nconst desde = String(inp.fecha || '');\nconst hasta = String(inp.fecha_hasta || '') || desde;\nconst personas = Number(inp.personas);\nconst ignorarVentana = inp.ignorar_anticipacion === true || inp.ignorar_anticipacion === 'true';\nconst cfg = {};\nfor (const it of $('Leer config').all()) { if (it.json.clave) cfg[it.json.clave] = String(it.json.valor); }\nconst tz = cfg.zona_horaria || 'America/Montevideo';\nconst franjas = String(cfg.franjas || '9h-10h-11h-13h-14h-15h-16h').split('-').map(function (s) { return parseInt(s); });\nconst dur = parseInt(cfg.duracion_min || '60');\nconst minH = parseInt(cfg.anticipacion_min_horas || '24');\nconst maxD = parseInt(cfg.anticipacion_max_dias || '30');\n// Si existe anticipacion_max_dias_habiles, la ventana se cuenta en días hábiles (gana sobre anticipacion_max_dias).\nconst maxHab = cfg.anticipacion_max_dias_habiles ? parseInt(cfg.anticipacion_max_dias_habiles) : null;\nconst tope = parseInt(cfg.tope_personas || '50');\n// Días hábiles desde config, por ejemplo \"lun-vie\" o \"lun,mie,vie\".\nconst MAPA = { lun: 1, mar: 2, mie: 3, 'mié': 3, jue: 4, vie: 5, sab: 6, 'sáb': 6, dom: 7 };\nconst habiles = new Set();\nfor (const parte of String(cfg.dias_habiles || 'lun-vie').toLowerCase().split(',')) {\n  const [ini, fin] = parte.trim().split('-');\n  const x = MAPA[ini], y = fin ? MAPA[fin] : MAPA[ini];\n  if (x && y) for (let k = x; k <= y; k++) habiles.add(k);\n}\nif (!habiles.size) [1, 2, 3, 4, 5].forEach(function (k) { habiles.add(k); });\n// Feriados desde config: fechas aaaa-mm-dd separadas por coma. No se ofrecen ni cuentan como días hábiles.\nconst feriados = new Set(String(cfg.feriados || '').split(',').map(function (s) { return s.trim(); }).filter(function (s) { return /^\\d{4}-\\d{2}-\\d{2}$/.test(s); }));\nconst out = { fecha: desde, fecha_hasta: hasta, personas: personas, disponible: false, motivo: null, explicacion: null, opciones: [], slots_libres: [], dias: [], cfg: cfg };\nconst re = /^\\d{4}-\\d{2}-\\d{2}$/;\nif (!re.test(desde) || !re.test(hasta)) { out.motivo = 'fecha_invalida'; out.explicacion = 'No entendí la fecha: necesito un día concreto (por ejemplo 21/10).'; return [{ json: out }]; }\nif (!(personas >= 1) || personas > tope) { out.motivo = 'personas_fuera_de_rango_max_' + tope; out.explicacion = personas >= 1 ? 'El máximo por reserva es de ' + tope + ' personas. La fecha no es el problema: el inconveniente es la cantidad. Para más de ' + tope + ' personas no se puede reservar por este chat.' : 'Necesito la cantidad de personas (un número entre 1 y ' + tope + ').'; return [{ json: out }]; }\nconst d0 = DateTime.fromISO(desde, { zone: tz }).startOf('day');\nconst d1 = DateTime.fromISO(hasta, { zone: tz }).startOf('day');\nif (d1 < d0 || d1.diff(d0, 'days').days > 20) { out.motivo = 'rango_invalido_max_21_dias'; out.explicacion = 'Puedo consultar hasta 21 días seguidos por vez; elegí un rango más corto.'; return [{ json: out }]; }\nconst now = DateTime.now().setZone(tz);\n// Último momento reservable. Con días hábiles: fin del N-ésimo día hábil contando desde mañana.\nlet limite = now.plus({ days: maxD });\nlet ventana = maxD + '_dias';\nif (maxHab) {\n  let dh = now.startOf('day'), n = 0;\n  while (n < maxHab) { dh = dh.plus({ days: 1 }); if (habiles.has(dh.weekday) && !feriados.has(dh.toISODate())) n++; }\n  limite = dh.endOf('day');\n  ventana = maxHab + '_dias_habiles';\n}\nout.reservable_hasta = limite.toISODate();\nconst ocupados = [];\nfor (const e of $input.all().map(function (i) { return i.json; })) {\n  if (!e || !e.start) continue;\n  if (e.status === 'cancelled') continue;\n  if (e.start.dateTime) ocupados.push([DateTime.fromISO(e.start.dateTime).toMillis(), DateTime.fromISO(e.end.dateTime).toMillis()]);\n  else ocupados.push([DateTime.fromISO(e.start.date, { zone: tz }).toMillis(), DateTime.fromISO(e.end.date, { zone: tz }).toMillis()]);\n}\nfor (let d = d0; d <= d1; d = d.plus({ days: 1 })) {\n  // dia_semana va calculado acá para que el modelo no tenga que deducirlo (se equivocaba).\n  const dia = { fecha: d.toISODate(), dia_semana: d.setLocale('es').toFormat(\"cccc d 'de' LLLL\"), slots_libres: [], motivo: null, explicacion: null };\n  if (!habiles.has(d.weekday)) { dia.motivo = d.weekday > 5 ? 'fin_de_semana' : 'dia_no_habil'; out.dias.push(dia); continue; }\n  if (feriados.has(d.toISODate())) { dia.motivo = 'feriado'; out.dias.push(dia); continue; }\n  let antes = 0, despues = 0, ocupadas = 0;\n  for (const h of franjas) {\n    const ini = d.set({ hour: h, minute: 0 });\n    const fin = ini.plus({ minutes: dur });\n    if (!ignorarVentana && ini < now.plus({ hours: minH })) { antes++; continue; }\n    if (!ignorarVentana && ini > limite) { despues++; continue; }\n    const a = ini.toMillis(), b = fin.toMillis();\n    if (!ocupados.some(function (x) { return a < x[1] && b > x[0]; })) dia.slots_libres.push(ini.toFormat('HH:mm'));\n    else ocupadas++;\n  }\n  if (!dia.slots_libres.length) {\n    if (despues === franjas.length) dia.motivo = 'mas_de_' + ventana + '_de_anticipacion';\n    else if (antes === franjas.length) dia.motivo = 'menos_de_' + minH + '_horas_de_anticipacion';\n    else dia.motivo = 'sin_cupo';\n  }\n  out.dias.push(dia);\n}\n// Explicación en castellano por día, lista para que el agente la repita tal cual.\nconst ultimo = limite.setLocale('es').toFormat(\"cccc d 'de' LLLL\");\nfor (const x of out.dias) {\n  if (x.slots_libres.length) continue;\n  if (x.motivo === 'feriado') x.explicacion = 'El ' + x.dia_semana + ' es feriado y el laboratorio no recibe visitas.';\n  else if (x.motivo === 'fin_de_semana' || x.motivo === 'dia_no_habil') x.explicacion = 'El ' + x.dia_semana + ' no hay visitas: se reciben de lunes a viernes.';\n  else if (String(x.motivo).indexOf('mas_de_') === 0) x.explicacion = 'El ' + x.dia_semana + ' todavía no se puede reservar: se reserva con hasta ' + (maxHab ? maxHab + ' días hábiles' : maxD + ' días') + ' de anticipación (el último día posible hoy es el ' + ultimo + ').';\n  else if (String(x.motivo).indexOf('menos_de_') === 0) x.explicacion = 'El ' + x.dia_semana + ' ya no llega a las ' + minH + ' horas de anticipación que necesitamos para organizar la visita.';\n  else x.explicacion = 'El ' + x.dia_semana + ' ya no quedan horarios libres.';\n}\n// Solo los días con horarios: es lo único que el agente debe ofrecer.\nout.opciones = out.dias.filter(function (x) { return x.slots_libres.length > 0; }).map(function (x) { return { fecha: x.fecha, dia_semana: x.dia_semana, horarios: x.slots_libres }; });\nout.reservable_hasta_texto = ultimo;\nout.slots_libres = out.dias[0].slots_libres;\nout.disponible = out.dias.some(function (x) { return x.slots_libres.length > 0; });\nif (!out.disponible) out.motivo = out.dias.length === 1 ? out.dias[0].motivo : 'sin_cupo_en_el_rango';\nreturn [{ json: out }];"
+      },
+      "position": [
+        760,
+        200
+      ],
+      "notes": "Code (luxon): valida ventana y tope, descarta ocupados y devuelve horarios libres o el motivo del rechazo.",
+      "notesInFlow": true
+    },
+    {
+      "id": "3b791f4d-53d1-4d26-abf5-f1b87eb575a2",
+      "name": "Nota: B1 resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        0
+      ],
+      "parameters": {
+        "content": "# 🗓️ B1 · Disponibilidad\n\n**Única fuente de verdad** sobre horarios. La usan:\n- el agente (consultar_disponibilidad)\n- B2, antes de reservar\n- Aprobación, antes de aprobar\n\n**Entrada**\nfecha, fecha_hasta (opcional, hasta 21 días), personas, ignorar_anticipacion\n\n**Salida**\n- `opciones[]`: solo los días con horarios, con `dia_semana` ya escrito (\"viernes 16 de octubre\") y `horarios`. Es lo único que el agente ofrece.\n- `dias[]`: todos los días del pedido, con `slots_libres`, `motivo` y `explicacion` en castellano cuando no hay horarios.\n- `reservable_hasta` y `reservable_hasta_texto`: último día que se puede reservar.\n- `cfg`: la config de la hoja, para que ningún otro flujo la vuelva a leer.\n\n**Por qué el día de la semana y la explicación vienen hechos:** el modelo calculaba mal los días (llegó a ofrecer sábados) y leía mal los motivos. Ahora solo repite lo que dice B1.",
+        "width": 380,
+        "height": 540,
+        "color": 7
+      }
+    },
+    {
+      "id": "80f7755f-f83f-451e-9586-7c451b0505b5",
+      "name": "Nota: B1 cálculo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        0
+      ],
+      "parameters": {
+        "content": "## Cálculo de horarios libres\nLee la config, trae los eventos del calendario **Brújula** y calcula los horarios libres de cada día con la zona horaria de la config.\n**Horario:** lunes a viernes, de 9 a 12 y de 13 a 17 (franjas `9h-10h-11h-13h-14h-15h-16h`, visitas de 60 min).\n**Ventana:** desde 24 h antes hasta **15 días hábiles** (contados desde mañana; no descuenta feriados).\n**Feriados:** las fechas de la clave `feriados` de la config (aaaa-mm-dd separadas por coma) no se ofrecen y no cuentan como días hábiles para la ventana de reserva.",
+        "width": 1000,
+        "height": 360,
+        "color": 5
+      }
+    },
+    {
+      "id": "64b826f7-5a03-4255-b720-6e6b86e7937d",
+      "name": "Nota: B1 motivos",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        380
+      ],
+      "parameters": {
+        "content": "**Motivos por día:** `fin_de_semana` · `dia_no_habil` · `feriado` · `menos_de_24_horas_de_anticipacion` · `mas_de_15_dias_habiles_de_anticipacion` · `sin_cupo`\n**Motivos generales:** `fecha_invalida` · `rango_invalido_max_21_dias` · `personas_fuera_de_rango_max_50`\nTodos los parámetros salen de la hoja **config** (`franjas`, `duracion_min`, `dias_habiles`, `anticipacion_min_horas`, `anticipacion_max_dias_habiles`): se cambian ahí, sin tocar n8n.",
+        "width": 1000,
+        "height": 160,
+        "color": 1
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Entrada": {
+      "main": [
+        [
+          {
+            "node": "Leer config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer config": {
+      "main": [
+        [
+          {
+            "node": "Eventos del rango",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eventos del rango": {
+      "main": [
+        [
+          {
+            "node": "Calcular disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "binaryMode": "separate",
+    "errorWorkflow": "ea1BObEQv5JQLT7a"
+  },
+  "versionId": "fd4ed663-a2bd-4903-aafd-108fe3c35ccf",
+  "meta": {},
+  "id": "JRjFMBZU6MEQLoUa",
+  "tags": []
+}
