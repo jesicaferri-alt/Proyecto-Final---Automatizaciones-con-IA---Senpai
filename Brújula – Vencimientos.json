@@ -1,0 +1,610 @@
+{
+  "name": "Brújula – Vencimientos",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1,
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "id": "bf10a30e-df2c-4c04-8bea-4064646b02b3",
+      "name": "Cada hora",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "0f60a558-137c-4a35-8803-7684bc0185b4",
+      "name": "Leer config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        220,
+        140
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "estado",
+              "lookupValue": "pendiente_aprobacion"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "973b01c7-5c80-4929-be15-2ca47cf0380c",
+      "name": "Leer pendientes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        440,
+        140
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide qué solicitudes pendientes vencieron. Solo lee; no escribe nada.\n// Vence si pasó el plazo de espera (espera_aprobacion_horas en config) desde que se creó,\n// o si la fecha y hora de la visita ya llegaron sin que nadie la aprobara.\nconst cfg = {};\nfor (const it of $('Leer config').all()) { if (it.json.clave) cfg[it.json.clave] = String(it.json.valor); }\nconst tz = cfg.zona_horaria || 'America/Montevideo';\nconst espera = parseInt(cfg.espera_aprobacion_horas || '24');\nconst ahora = DateTime.now().setZone(tz);\n\nconst filas = $('Leer pendientes').all().map(function (x) { return x.json; })\n  .filter(function (r) { return r && r.id && r.estado === 'pendiente_aprobacion'; });\n\nconst vencidas = [];\nfor (const r of filas) {\n  const creado = DateTime.fromFormat(String(r.creado_en || ''), 'yyyy-MM-dd HH:mm:ss', { zone: tz });\n  const visita = DateTime.fromISO(String(r.fecha) + 'T' + String(r.hora), { zone: tz });\n  let motivo = null;\n  if (visita.isValid && ahora >= visita) motivo = 'fecha_pasada';\n  else if (creado.isValid && ahora >= creado.plus({ hours: espera })) motivo = 'sin_respuesta';\n  // Si creado_en no se puede leer, no se rechaza sola: queda para que la resuelva el staff.\n  if (motivo) vencidas.push({ json: { id: r.id, motivo: motivo, espera_horas: espera } });\n}\nreturn vencidas;"
+      },
+      "id": "063f6d9f-50ee-4b84-89cb-bf88bb6bc2f8",
+      "name": "Detectar vencidas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cdde1878-78e5-47d9-83a1-c40d05764cbb",
+      "name": "Releer fila",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        900,
+        140
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ee8a2b5a-f509-41e5-87ae-6a503c255b7c",
+              "leftValue": "={{ $json.estado }}",
+              "rightValue": "pendiente_aprobacion",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "03ce78e7-f3ff-40cc-b8ba-03ffc4639a9e",
+      "name": "¿Sigue pendiente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "estado": "rechazada",
+            "nota_staff": "={{ $('Detectar vencidas').item.json.motivo === 'fecha_pasada' ? 'Vencida: llegó la fecha de la visita sin aprobación.' : 'Vencida: sin respuesta del staff en ' + $('Detectar vencidas').item.json.espera_horas + ' h.' }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "75579d60-ce2e-4adf-b296-8fdc8caf1879",
+      "name": "Marcar vencida",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1480,
+        120
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('¿Sigue pendiente?').item.json.chat_id }}",
+        "text": "={{ 'Hola ' + $('¿Sigue pendiente?').item.json.nombre + '. ' + ($('Detectar vencidas').item.json.motivo === 'fecha_pasada' ? 'Tu solicitud de visita del ' + $('¿Sigue pendiente?').item.json.fecha + ' a las ' + $('¿Sigue pendiente?').item.json.hora + ' no llegó a confirmarse antes de la fecha, así que la dimos de baja.' : 'No pudimos confirmar a tiempo tu solicitud de visita del ' + $('¿Sigue pendiente?').item.json.fecha + ' a las ' + $('¿Sigue pendiente?').item.json.hora + ' para ' + $('¿Sigue pendiente?').item.json.personas + ' personas, así que la dimos de baja.') + ' Si querés, escribime y buscamos otra fecha.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d92a0fde-ee22-4641-b50c-2f0b8551256f",
+      "name": "Avisar a la persona",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1720,
+        120
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "webhookId": "5189a4d2-50f2-48d0-97f8-dba10de3ac5a"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Leer config').all().find(i => i.json.clave === 'staff_chat_id').json.valor }}",
+        "text": "={{ '⏰ Solicitud vencida: ' + $('¿Sigue pendiente?').item.json.id + '\\n' + $('¿Sigue pendiente?').item.json.nombre + ', ' + $('¿Sigue pendiente?').item.json.personas + ' personas, ' + $('¿Sigue pendiente?').item.json.fecha + ' ' + $('¿Sigue pendiente?').item.json.hora + '.\\n' + ($('Detectar vencidas').item.json.motivo === 'fecha_pasada' ? 'Llegó la fecha sin aprobación.' : 'Nadie respondió en ' + $('Detectar vencidas').item.json.espera_horas + ' h.') + ' Quedó rechazada y los links de esa solicitud ya no sirven.\\n' + ($json.error ? '⚠️ No se le pudo avisar a la persona por Telegram. Contacto: ' + $('¿Sigue pendiente?').item.json.contacto : 'Ya se le avisó a la persona.') }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d79f67ca-4922-467a-af92-0e4a6457cac9",
+      "name": "Avisar al staff",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1980,
+        140
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "1cc5b66a-064a-4517-9bb8-adf31016c610"
+    },
+    {
+      "parameters": {
+        "content": "# ⏰ Brújula · Vencimientos\n\nCierra las solicitudes de **grupos grandes** que quedaron sin respuesta del staff.\n\n**Cuándo vence una solicitud**\n- Pasaron más horas que `espera_aprobacion_horas` (hoja config, hoy 24) desde que se creó, **o**\n- llegó la fecha y hora de la visita y nadie la aprobó.\n\n**Qué hace con cada vencida**\n1. La marca `rechazada` con el motivo en `nota_staff`.\n2. Le avisa a la persona y le ofrece buscar otra fecha.\n3. Le avisa al staff. Los links de aprobar y rechazar de esa solicitud dejan de servir: Aprobación responde \"Solicitud inválida o ya resuelta\".\n\n**Tiene que estar publicado** para que corra cada hora.\n\nEl plazo se cambia en la hoja config, sin tocar n8n.",
+        "height": 760,
+        "width": 400,
+        "color": 7
+      },
+      "id": "6a3f26bd-492e-43c6-b86f-612b65a75b44",
+      "name": "Nota: Vencimientos resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1 · Buscar candidatas\nCada hora (al minuto 5) lee la config y las filas en `pendiente_aprobacion`. El filtro está en la lectura de Sheets: no trae la hoja entera.\n**Detectar vencidas** solo decide; no escribe. Si no hay ninguna, el workflow termina ahí.",
+        "height": 300,
+        "width": 820,
+        "color": 5
+      },
+      "id": "ff7ee333-744f-49d9-9ba3-4e9482f2e5dd",
+      "name": "Nota: Vencimientos 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 · Releer antes de escribir\nEntre la lectura y la escritura alguien pudo aprobar o rechazar desde el link. Por eso vuelve a leer la fila y **solo sigue si todavía está pendiente**. Así no pisa una visita recién confirmada.",
+        "height": 300,
+        "width": 560,
+        "color": 4
+      },
+      "id": "41777719-7521-4d7e-82e5-e602b93a8417",
+      "name": "Nota: Vencimientos 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        840,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3 · Cerrar y avisar\nMarca la fila como `rechazada`, le escribe a la persona y le avisa al staff.\nSi el mensaje a la persona falla (por ejemplo, bloqueó al bot), el aviso al staff lo dice, con el contacto, para que la llamen o le escriban a mano.",
+        "height": 300,
+        "width": 760,
+        "color": 6
+      },
+      "id": "63bb33bb-539d-427d-afea-bba4d4e3c909",
+      "name": "Nota: Vencimientos 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -220
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cada hora": {
+      "main": [
+        [
+          {
+            "node": "Leer config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer config": {
+      "main": [
+        [
+          {
+            "node": "Leer pendientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer pendientes": {
+      "main": [
+        [
+          {
+            "node": "Detectar vencidas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar vencidas": {
+      "main": [
+        [
+          {
+            "node": "Releer fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Releer fila": {
+      "main": [
+        [
+          {
+            "node": "¿Sigue pendiente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sigue pendiente?": {
+      "main": [
+        [
+          {
+            "node": "Marcar vencida",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Marcar vencida": {
+      "main": [
+        [
+          {
+            "node": "Avisar a la persona",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar a la persona": {
+      "main": [
+        [
+          {
+            "node": "Avisar al staff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar al staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "errorWorkflow": "ea1BObEQv5JQLT7a"
+  },
+  "versionId": "950e86a9-79d9-428c-98ec-a282e425b9ae",
+  "meta": {},
+  "id": "26m6hYjyWmNXeM8o",
+  "tags": []
+}
