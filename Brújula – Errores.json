@@ -1,0 +1,201 @@
+{
+  "name": "Brújula – Errores",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d242eca3-17fe-4a5a-9ae6-f11bfe2d6bd7",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        60,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Arma un mensaje corto y legible con los datos del error.\n// El Error Trigger trae dos formas posibles:\n//  A) falló un nodo durante la ejecución -> viene \"execution\"\n//  B) falló el propio trigger del workflow -> viene \"trigger\" (sin execution)\nconst d = $('Error Trigger').first().json;\nconst enTrigger = !d.execution;\nconst err = enTrigger ? (d.trigger?.error ?? {}) : (d.execution?.error ?? {});\nconst ahora = DateTime.now().setZone('America/Montevideo').toFormat('dd/MM/yyyy HH:mm');\nconst nodo = d.execution?.lastNodeExecuted ?? err.node?.name ?? 'trigger';\nconst lineas = [\n  '🚨 Brújula: falló un workflow',\n  '',\n  'Workflow: ' + (d.workflow?.name ?? 'desconocido'),\n  'Nodo: ' + nodo,\n  'Error: ' + String(err.message ?? 'sin mensaje').slice(0, 600),\n  'Cuándo: ' + ahora,\n];\nif (err.description) lineas.push('Detalle: ' + String(err.description).slice(0, 400));\nif (d.execution?.url) lineas.push('', 'Ver ejecución: ' + d.execution.url);\nif (enTrigger) lineas.push('', '(Falló el disparador: no llegó a crearse una ejecución.)');\n// Chat del staff: sale de staff_chat_id en la hoja config. Si la hoja no respondió\n// (muchas fallas vienen justamente de Google Sheets), se usa el chat de respaldo.\nconst RESPALDO = '8786367981';\nlet chat = '';\ntry {\n  const fila = $('Leer config').all().map(function (i) { return i.json; }).find(function (r) { return r && r.clave === 'staff_chat_id'; });\n  chat = fila ? String(fila.valor || '').trim() : '';\n} catch (e) { chat = ''; }\nconst chat_id = /^-?\\d+$/.test(chat) ? chat : RESPALDO;\nreturn [{ json: { texto: lineas.join('\\n').slice(0, 3900), workflow: d.workflow?.name ?? '', nodo, chat_id } }];"
+      },
+      "id": "2638b3f8-5cd1-4089-bc3e-63fcdd7fdd7d",
+      "name": "Armar aviso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "bd97471e-38ae-4573-9a55-ce5270c5674b",
+      "name": "Avisar al staff",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        840,
+        100
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "webhookId": "9e5efc29-a757-4f04-9e61-5715a7fde9b6"
+    },
+    {
+      "parameters": {
+        "content": "# 🚨 Brújula · Errores\n\nEste es el **error workflow** del proyecto. Cuando cualquier workflow de Brújula falla en una ejecución real, n8n lo dispara solo y le manda un aviso por Telegram al staff.\n\n**Qué workflows lo usan**\nPrincipal, B1, B2, Aprobación, CSAT y Vencimientos. Está configurado en *Settings → Error workflow* de cada uno.\n\n**No hace falta publicarlo.** n8n lo ejecuta cuando hay un error.\n\n**Ojo: no salta en pruebas manuales.** Si corrés un workflow con *Execute workflow* y falla, lo ves en pantalla pero no llega aviso. Solo avisa en ejecuciones de producción (Telegram, webhook, schedule).",
+        "height": 640,
+        "width": 380,
+        "color": 7
+      },
+      "id": "2125f3d9-5083-42fe-bc9d-90e37f6a8cb2",
+      "name": "Nota: Errores resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Cómo funciona\n**1 · Error Trigger:** recibe qué workflow falló, en qué nodo y con qué mensaje.\n**2 · Leer config:** busca `staff_chat_id` en la hoja. Si la hoja falla, sigue igual.\n**3 · Armar aviso:** junta los datos en un texto corto, con el link a la ejecución, y elige el chat.\n**4 · Avisar al staff:** lo manda por Telegram. Si Telegram no responde, reintenta 3 veces.",
+        "height": 260,
+        "width": 1160,
+        "color": 5
+      },
+      "id": "71510b09-c414-4813-883f-4e172614505a",
+      "name": "Nota: Errores flujo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### ¿A qué chat va el aviso?\nAl `staff_chat_id` de la hoja **config**: es el mismo chat que recibe las solicitudes de grupos y las alertas de la encuesta, así que se cambia en un solo lugar.\n\n**Si la hoja no responde** (muchas fallas vienen de Google Sheets), usa el chat de respaldo escrito en «Armar aviso», para que el aviso salga igual. Si cambia el staff, conviene actualizar también ese respaldo.",
+        "height": 320,
+        "width": 340,
+        "color": 3
+      },
+      "id": "c193fc65-da0b-4566-961d-294d8e9b7fd6",
+      "name": "Nota: Errores chat fijo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        880,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Ojo con los errores que ya se manejan adentro\nSi un nodo tiene *On Error → Continue*, el workflow no se considera fallido y este aviso **no** salta, salvo que el flujo lo fuerce:\n- **Principal:** si el agente falla, la persona recibe una disculpa **y** la ejecución termina en error a propósito para que llegue este aviso.\n- **CSAT:** si una encuesta no se puede enviar (3 intentos), la fila queda `FALLO` y la ejecución termina en error para avisar.\n- **B2:** si falla el aviso al staff, el agente se lo informa a la persona (no llega este aviso).",
+        "height": 280,
+        "width": 820,
+        "color": 6
+      },
+      "id": "b05c1f3a-721b-46da-b640-8ab63b8fab1d",
+      "name": "Nota: Errores ojo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "id": "22b02d58-5af8-4a3a-a64e-dfefcfcde60e",
+      "name": "Leer config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        320,
+        100
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "notes": "Sheets: busca staff_chat_id. Si falla, sigue igual (el aviso usa el chat de respaldo).",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "config",
+          "mode": "name"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Leer config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer config": {
+      "main": [
+        [
+          {
+            "node": "Armar aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar aviso": {
+      "main": [
+        [
+          {
+            "node": "Avisar al staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo"
+  },
+  "versionId": "e023081e-93c6-4b76-ab98-1ea3c1b452b1",
+  "meta": {},
+  "id": "ea1BObEQv5JQLT7a",
+  "tags": []
+}
