@@ -1,0 +1,711 @@
+{
+  "name": "Brújula – CSAT",
+  "nodes": [
+    {
+      "id": "f40104c3-b029-42a2-9a13-1fe5dcce06c3",
+      "name": "Todos los días 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "position": [
+        40,
+        180
+      ],
+      "notes": "Disparo diario programado.",
+      "notesInFlow": true
+    },
+    {
+      "id": "0730cc7f-2fe2-4e43-baac-32b6f20342e2",
+      "name": "Visitas confirmadas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "estado",
+              "lookupValue": "confirmada"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        280,
+        180
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: trae las visitas confirmadas.",
+      "notesInFlow": true
+    },
+    {
+      "id": "abbee3d2-34cd-4960-bf04-ef0b82e3bb15",
+      "name": "Enviar encuesta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ '¡Hola ' + $json.nombre + '! Gracias por tu visita al Laboratorio de Innovación Educativa. ¿Cómo calificarías tu experiencia? (1 = mala, 5 = excelente)' }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "1",
+                    "additionalFields": {
+                      "callback_data": "={{ 'csat|' + $json.id + '|1' }}"
+                    }
+                  },
+                  {
+                    "text": "2",
+                    "additionalFields": {
+                      "callback_data": "={{ 'csat|' + $json.id + '|2' }}"
+                    }
+                  },
+                  {
+                    "text": "3",
+                    "additionalFields": {
+                      "callback_data": "={{ 'csat|' + $json.id + '|3' }}"
+                    }
+                  },
+                  {
+                    "text": "4",
+                    "additionalFields": {
+                      "callback_data": "={{ 'csat|' + $json.id + '|4' }}"
+                    }
+                  },
+                  {
+                    "text": "5",
+                    "additionalFields": {
+                      "callback_data": "={{ 'csat|' + $json.id + '|5' }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        760,
+        180
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "webhookId": "6b33d0fb-ba6b-448c-bc56-cdcd3a8a67e4",
+      "notes": "Telegram: pregunta con botones del 1 al 5. Reintenta 3 veces si falla.",
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "bd52875c-c1f9-436c-b5b0-3f2f76dfb510",
+      "name": "Marcar encuesta enviada",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Visitas confirmadas').item.json.id }}",
+            "csat_enviado": "TRUE",
+            "estado": "realizada"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        1000,
+        100
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: pasa la visita a realizada y csat_enviado TRUE.",
+      "notesInFlow": true
+    },
+    {
+      "id": "489da3d7-9ed5-42e8-b58f-b2a893270f2d",
+      "name": "Nota: CSAT resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        0
+      ],
+      "parameters": {
+        "content": "# ⭐ CSAT · Encuesta\n\nTodos los días a las **10:00** (hora de Montevideo) le pregunta cómo le fue a quien visitó el laboratorio, con botones del 1 al 5. Normalmente es la visita de **ayer**; si algún día no se pudo enviar, se recupera dentro de los 7 días siguientes.\n\nEl toque del botón lo recibe el **Principal** (rama de encuesta): guarda `csat_score`, pide comentario y alerta si el puntaje es bajo.\n\n**Si el envío falla** 3 veces, la fila queda con `csat_enviado = FALLO` y se avisa al staff.",
+        "width": 380,
+        "height": 400,
+        "color": 7
+      }
+    },
+    {
+      "id": "95cfe83e-63d5-48f5-8356-c546a45ebb79",
+      "name": "Nota: CSAT envío",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        0
+      ],
+      "parameters": {
+        "content": "## Envío diario\nSheets trae las visitas **confirmadas** y el filtro deja las de los **últimos 7 días** (sin contar hoy) que no recibieron la encuesta. Se envía y la fila pasa a `realizada` con `csat_enviado = TRUE`.\nSi Telegram falla 3 veces (por ejemplo, la persona bloqueó el bot), la fila queda `FALLO` y la ejecución termina en error para que avise «Brújula – Errores».",
+        "width": 1440,
+        "height": 520,
+        "color": 6
+      }
+    },
+    {
+      "id": "0e72b656-f7be-4bb0-8b7c-125017328016",
+      "name": "Sin encuesta (últimos 7 días)",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        180
+      ],
+      "notesInFlow": true,
+      "notes": "Visitas de los últimos 7 días (sin hoy) que todavía no recibieron la encuesta. Si un día falla el envío, al siguiente se recupera.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fa971185-ae50-4adc-99f9-f8f4b85a0436",
+              "leftValue": "={{ DateTime.fromISO(String($json.fecha), { zone: 'America/Montevideo' }) < $now.setZone('America/Montevideo').startOf('day') && DateTime.fromISO(String($json.fecha), { zone: 'America/Montevideo' }) >= $now.setZone('America/Montevideo').startOf('day').minus({ days: 7 }) && !['TRUE', 'FALLO'].includes(String($json.csat_enviado ?? '').toUpperCase()) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3e23494c-0910-4550-bfc3-277d1b2af82e",
+      "name": "Marcar fallo de envío",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1000,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Sheets: csat_enviado = FALLO, así no se reintenta todos los días.",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id || $('Sin encuesta (últimos 7 días)').item.json.id }}",
+            "csat_enviado": "FALLO",
+            "estado": "realizada"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c865bf7-ce78-46b7-ae42-6241d89f9f7d",
+      "name": "Avisar fallo de envío",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Marca la ejecución como fallida para que «Brújula – Errores» avise al staff.",
+      "parameters": {
+        "errorType": "errorMessage",
+        "errorMessage": "={{ 'No se pudo enviar la encuesta de satisfacción (visita ' + $input.all().map(i => i.json.id).join(', ') + '). Quedó con csat_enviado = FALLO: conviene contactar a la persona por otro medio.' }}"
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Todos los días 10:00": {
+      "main": [
+        [
+          {
+            "node": "Visitas confirmadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Visitas confirmadas": {
+      "main": [
+        [
+          {
+            "node": "Sin encuesta (últimos 7 días)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sin encuesta (últimos 7 días)": {
+      "main": [
+        [
+          {
+            "node": "Enviar encuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar encuesta": {
+      "main": [
+        [
+          {
+            "node": "Marcar encuesta enviada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar fallo de envío",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar fallo de envío": {
+      "main": [
+        [
+          {
+            "node": "Avisar fallo de envío",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "errorWorkflow": "ea1BObEQv5JQLT7a"
+  },
+  "versionId": "0e247529-d0be-4369-82c7-4179187de0a7",
+  "meta": {},
+  "id": "7QOwsvEgcVTYqSIR",
+  "tags": []
+}
