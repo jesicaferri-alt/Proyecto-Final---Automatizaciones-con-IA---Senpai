@@ -1,0 +1,1903 @@
+{
+  "name": "Brújula – Aprobación",
+  "nodes": [
+    {
+      "id": "a041d3d1-6da1-47df-ae77-44602cd3d7fd",
+      "name": "Webhook aprobación",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "parameters": {
+        "path": "brujula-aprobacion",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        40,
+        320
+      ],
+      "webhookId": "3c1d7a52-6b7e-4f6e-9d55-b7f0a1c2e901",
+      "notes": "GET desde los links que recibe el staff (aprobar / rechazar).",
+      "notesInFlow": true
+    },
+    {
+      "id": "daeca564-a941-49ee-9420-6e02cba5a091",
+      "name": "Buscar solicitud",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{ $json.query.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        280,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "alwaysOutputData": true,
+      "notes": "Sheets: busca la solicitud por id.",
+      "notesInFlow": true
+    },
+    {
+      "id": "36340af0-5d5e-47c2-8c28-82e7b5f4bd08",
+      "name": "Validar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const q = $('Webhook aprobación').first().json.query || {};\nconst fila = $input.all().map(function (x) { return x.json; }).find(function (r) { return r && r.id === q.id; }) || null;\n// Candado: la ejecución que toma la solicitud deja nota_staff = \"procesando:<ejecución>:<epoch ms>\".\n// Si hay uno de menos de 2 minutos, otra pestaña la está procesando. Uno más viejo se ignora (ejecución caída).\nconst m = fila ? String(fila.nota_staff || '').match(/^procesando:([^:]+):(\\d+)$/) : null;\nconst enProceso = !!m && (Date.now() - Number(m[2])) < 2 * 60 * 1000;\nconst ok = !!fila && fila.estado === 'pendiente_aprobacion' && !enProceso && (q.d === 'aprobar' || q.d === 'rechazar');\nreturn [{ json: { valido: ok, en_proceso: enProceso, decision: q.d, id: q.id, fila: fila, lock: 'procesando:' + $execution.id + ':' + Date.now() } }];"
+      },
+      "position": [
+        520,
+        320
+      ],
+      "notes": "Code: comprueba que exista, siga pendiente y nadie la esté procesando.",
+      "notesInFlow": true
+    },
+    {
+      "id": "fe7fe58a-064f-40f4-997c-25e5dc79a6d0",
+      "name": "¿Válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5417493b-17d1-44ed-9358-462eb925be5f",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        760,
+        320
+      ],
+      "notes": "Si ya fue resuelta o no existe, corta.",
+      "notesInFlow": true
+    },
+    {
+      "id": "8171c387-499a-491e-af84-0d7dc8940b61",
+      "name": "Solicitud inválida",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b3e2c860-e84c-445f-a07d-1ccd776a9480",
+              "name": "mensaje",
+              "value": "Solicitud inválida, ya resuelta o en proceso.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        960,
+        620
+      ],
+      "notes": "Respuesta al navegador: inválida o ya resuelta.",
+      "notesInFlow": true
+    },
+    {
+      "id": "faafd74d-cfec-4111-b635-410487781354",
+      "name": "¿Aprobar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d0395a6-2dce-4755-ad9d-de7836fbaa5a",
+              "leftValue": "={{ $('Validar').first().json.decision }}",
+              "rightValue": "aprobar",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1960,
+        320
+      ],
+      "notes": "Bifurca aprobar vs rechazar.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b240341b-548e-46af-86c4-3837cc6d7758",
+      "name": "Revalidar disponibilidad",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "JRjFMBZU6MEQLoUa",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fecha": "={{ $('Validar').first().json.fila.fecha }}",
+            "fecha_hasta": "",
+            "personas": "={{ $('Validar').first().json.fila.personas }}",
+            "ignorar_anticipacion": true
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "fecha_hasta",
+              "displayName": "fecha_hasta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "ignorar_anticipacion",
+              "displayName": "ignorar_anticipacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "position": [
+        2220,
+        40
+      ],
+      "notes": "Consulta B1 otra vez: el horario pudo ocuparse mientras esperaba.",
+      "notesInFlow": true
+    },
+    {
+      "id": "800083a3-62ec-4f49-a9ee-0dc6435d23a9",
+      "name": "¿Sigue libre?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Diseño B: el pendiente no bloquea el horario. Al aprobar se revalida:\n// si la fecha ya pasó o alguien tomó el horario, se rechaza solo.\nconst v = $('Validar').first().json;\nconst b1 = $input.first().json;\nconst cfg = b1.cfg || {};\nconst tz = cfg.zona_horaria || 'America/Montevideo';\nconst dur = parseInt(cfg.duracion_min || '60');\nconst hh = String(v.fila.hora).slice(0, 5);\nconst ini = DateTime.fromISO(String(v.fila.fecha) + 'T' + hh, { zone: tz });\nlet motivo = null;\nif (!ini.isValid || ini < DateTime.now().setZone(tz)) motivo = 'fecha_pasada';\nelse if (!(b1.slots_libres || []).includes(hh)) motivo = 'horario_ocupado';\nreturn [{ json: { libre: motivo === null, motivo: motivo, id: v.id, fila: v.fila, inicio: ini.toISO(), fin: ini.plus({ minutes: dur }).toISO() } }];"
+      },
+      "position": [
+        2460,
+        40
+      ],
+      "notes": "Code: verifica que el horario siga libre y la fecha no haya pasado.",
+      "notesInFlow": true
+    },
+    {
+      "id": "33cae0e7-c970-473c-9b4d-0d9ff103339e",
+      "name": "¿Horario libre?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d4211845-0654-4833-8269-7233fecf633a",
+              "leftValue": "={{ $json.libre }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2700,
+        40
+      ],
+      "notes": "Si no, rechazo automático.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b9416f53-8b05-476b-86ca-8d8e5099ebca",
+      "name": "Crear evento aprobado",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "visitasceibal@gmail.com",
+          "mode": "list",
+          "cachedResultName": "Brújula"
+        },
+        "start": "={{ $json.inicio }}",
+        "end": "={{ $json.fin }}",
+        "additionalFields": {
+          "summary": "={{ 'Visita – ' + $json.fila.nombre + ' (' + $json.fila.personas + ' pers.)' }}",
+          "description": "={{ 'Motivo: ' + $json.fila.motivo + '\\nContacto: ' + $json.fila.contacto + '\\nID: ' + $json.id }}"
+        }
+      },
+      "position": [
+        2940,
+        -40
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "R4nVWZHU4E6SqMHQ",
+          "name": "Google Calendar account"
+        }
+      },
+      "notes": "Calendar: crea el evento.",
+      "notesInFlow": true
+    },
+    {
+      "id": "d3ea7a19-97a0-402d-99ba-bdbbad3b3c92",
+      "name": "Marcar confirmada",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('¿Sigue libre?').first().json.id }}",
+            "estado": "confirmada",
+            "event_id": "={{ $json.id }}",
+            "nota_staff": "Aprobada por el equipo."
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        3180,
+        -40
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: pasa la fila a confirmada.",
+      "notesInFlow": true
+    },
+    {
+      "id": "fb1a6ea6-0ddf-468c-bbad-05f677fdb8ce",
+      "name": "Avisar aprobada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $('¿Sigue libre?').first().json.fila.chat_id }}",
+        "text": "={{ '¡Buenas noticias! El equipo aprobó tu visita del ' + $('¿Sigue libre?').first().json.fila.fecha + ' a las ' + $('¿Sigue libre?').first().json.fila.hora + '. Te esperamos.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3420,
+        -40
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "4a456812-ff0d-4a28-8cf8-d578500045b6",
+      "notes": "Telegram: avisa a la persona.",
+      "notesInFlow": true
+    },
+    {
+      "id": "9a824bbe-d785-4f7d-abf8-526607a4439f",
+      "name": "Fin: aprobada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ef9247e-99e9-4dd9-a04f-7eb16b3ea0c2",
+              "name": "mensaje",
+              "value": "Visita aprobada y agendada. Ya avisamos a la persona.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        3660,
+        -40
+      ],
+      "notes": "Respuesta al navegador del staff.",
+      "notesInFlow": true
+    },
+    {
+      "id": "0bc24c7d-d260-415c-99a3-c32917736432",
+      "name": "Rechazo automático",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('¿Sigue libre?').first().json.id }}",
+            "estado": "rechazada",
+            "nota_staff": "={{ $('¿Sigue libre?').first().json.motivo === 'fecha_pasada' ? 'Rechazo automático: la fecha ya pasó cuando se intentó aprobar.' : 'Rechazo automático: el horario se ocupó mientras estaba pendiente.' }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        2940,
+        160
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: marca rechazada con nota_staff.",
+      "notesInFlow": true
+    },
+    {
+      "id": "9a2f0e42-ee45-49d2-91bc-4f5ad7af8e85",
+      "name": "Avisar rechazo automático",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $('¿Sigue libre?').first().json.fila.chat_id }}",
+        "text": "={{ 'Lamentablemente no pudimos confirmar tu visita del ' + $('¿Sigue libre?').first().json.fila.fecha + ' a las ' + $('¿Sigue libre?').first().json.fila.hora + ($('¿Sigue libre?').first().json.motivo === 'fecha_pasada' ? ', porque la fecha ya pasó.' : ', porque ese horario se ocupó mientras revisábamos tu solicitud.') + ' Escribime y buscamos otro horario.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3180,
+        160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "f28a3cc6-5f6c-4a1b-8b44-0f5845d01354",
+      "notes": "Telegram: avisa y pide otro horario.",
+      "notesInFlow": true
+    },
+    {
+      "id": "46472fbe-5067-4180-9ae9-f452a6dd3e4b",
+      "name": "Fin: rechazo automático",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c5e60321-5662-4ced-a5a3-90d02279cdec",
+              "name": "mensaje",
+              "value": "={{ 'No se pudo aprobar (' + $('¿Sigue libre?').first().json.motivo + '). Se rechazó automáticamente y se avisó a la persona.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        3420,
+        160
+      ],
+      "notes": "Respuesta al navegador del staff.",
+      "notesInFlow": true
+    },
+    {
+      "id": "7692e134-7689-447c-9222-9ae1e07e594e",
+      "name": "Marcar rechazada",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Validar').first().json.id }}",
+            "estado": "rechazada",
+            "nota_staff": "Rechazada por el equipo."
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        2220,
+        460
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notes": "Sheets: pasa la fila a rechazada.",
+      "notesInFlow": true
+    },
+    {
+      "id": "16ed8021-c1d8-47f9-92f4-47c1d346584d",
+      "name": "Avisar rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $('Validar').first().json.fila.chat_id }}",
+        "text": "={{ 'Lamentablemente no pudimos confirmar tu visita del ' + $('Validar').first().json.fila.fecha + ' a las ' + $('Validar').first().json.fila.hora + '. Si querés, escribime y buscamos otra fecha.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2460,
+        460
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "7f7Fy4QSxiaTsgYC",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "c93a5e7e-a344-4b72-9af6-0da7cc04d796",
+      "notes": "Telegram: avisa a la persona.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c4d5f047-dcef-42da-910a-e0bc5677099f",
+      "name": "Fin: rechazada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ecac4c63-e076-41e4-b3f6-e9701d520d29",
+              "name": "mensaje",
+              "value": "Visita rechazada. Ya avisamos a la persona.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        2700,
+        460
+      ],
+      "notes": "Respuesta al navegador del staff.",
+      "notesInFlow": true
+    },
+    {
+      "id": "ba38472a-ccc6-481f-9e40-7b413a513d32",
+      "name": "Nota: Aprobación resumen",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -160
+      ],
+      "parameters": {
+        "content": "# 👍 Aprobación de grupos\n\nSe dispara cuando quien aprueba toca un link del aviso:\n`/webhook/brujula-aprobacion?id=…&d=aprobar|rechazar`\n\nResponde en el navegador con una página corta: aprobada, rechazada, no se pudo aprobar, en proceso o nada para hacer.\n\n**Garantías**\n- Solo actúa sobre solicitudes **pendientes**: un link repetido no cambia nada.\n- **Doble click:** si el link se abre dos veces a la vez, un candado en la hoja deja seguir a una sola ejecución.\n- Al aprobar **revalida con B1**. Si el horario se ocupó o la fecha ya pasó, rechaza solo y avisa.\n\n**Límites conocidos**\n- El vencimiento a las 24 h lo hace «Brújula – Vencimientos».\n- Los links son GET sin firma (el id es aleatorio).",
+        "width": 380,
+        "height": 920,
+        "color": 7
+      }
+    },
+    {
+      "id": "89d3bc3c-6429-4b8e-8a13-cc13f0a3224b",
+      "name": "Nota: Aprobación validar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        160
+      ],
+      "parameters": {
+        "content": "## 1 · Validar la solicitud\nBusca la fila por id con un filtro de Sheets (no lee toda la hoja) y verifica que siga pendiente y que la acción sea aprobar o rechazar.",
+        "width": 1000,
+        "height": 320,
+        "color": 5
+      }
+    },
+    {
+      "id": "e46a5c88-de5b-49b0-8793-db3af5a2504b",
+      "name": "Nota: Aprobación inválida",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        880,
+        500
+      ],
+      "parameters": {
+        "content": "**Link inválido o ya usado**\nNo cambia nada en la hoja.",
+        "width": 260,
+        "height": 260,
+        "color": 3
+      }
+    },
+    {
+      "id": "a41c2f51-d4e5-4e87-a330-b52d36cc35b6",
+      "name": "Nota: Aprobación aprobar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2140,
+        -180
+      ],
+      "parameters": {
+        "content": "## 2a · Aprobar\nRevalida con B1 (sin ventana de anticipación). Arriba: horario libre → crea el evento, confirma la fila y avisa. Abajo: **rechazo automático** si se ocupó o si la fecha ya pasó.",
+        "width": 1660,
+        "height": 480,
+        "color": 4
+      }
+    },
+    {
+      "id": "e03d39ec-5282-4361-b273-9e9d7fbd04fa",
+      "name": "Nota: Aprobación rechazar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2140,
+        340
+      ],
+      "parameters": {
+        "content": "## 2b · Rechazar\nMarca la fila como rechazada y avisa a la persona.",
+        "width": 700,
+        "height": 280,
+        "color": 2
+      }
+    },
+    {
+      "id": "63e42495-ddcb-45e2-84c1-8652a9614e11",
+      "name": "Tomar solicitud",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1000,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Sheets: deja la marca \"procesando\" de esta ejecución en nota_staff.",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Validar').first().json.id }}",
+            "nota_staff": "={{ $('Validar').first().json.lock }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creado_en",
+              "displayName": "creado_en",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacto",
+              "displayName": "contacto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo",
+              "displayName": "motivo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "motivo_otro",
+              "displayName": "motivo_otro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personas",
+              "displayName": "personas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado",
+              "displayName": "estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nota_staff",
+              "displayName": "nota_staff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_enviado",
+              "displayName": "csat_enviado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_score",
+              "displayName": "csat_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "csat_comentario",
+              "displayName": "csat_comentario",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1cccec59-4e04-40e7-b551-00548b932c1e",
+      "name": "Esperar 3 s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1240,
+        320
+      ],
+      "webhookId": "ccd6d500-9b9d-4d99-95fb-13e5a68badde",
+      "notesInFlow": true,
+      "notes": "Da tiempo a que otra pestaña que tocó el link a la vez también escriba su marca.",
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 3,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "b9b3a81b-461d-4019-8e49-7fd4065875fd",
+      "name": "Releer solicitud",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1480,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "RBAnVyBGh9wnVTCJ",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "notes": "Sheets: vuelve a leer la fila para ver qué marca quedó.",
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "15upXkCHs7dhPPRtsVY6JgAjI33ndKl1uwM1qMu4JtOw",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "visitas",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{ $('Validar').first().json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5d78199e-c73a-4ea3-a396-961626fe1d62",
+      "name": "¿Es nuestra?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "notes": "Gana la última marca escrita: solo esa ejecución sigue. Las demás responden que ya se está procesando.",
+      "notesInFlow": true,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f20d575c-dce2-4ecc-b931-a1d89877878a",
+              "leftValue": "={{ String($json.nota_staff ?? '') === $('Validar').first().json.lock && $json.estado === 'pendiente_aprobacion' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2f8b0e84-e320-4b94-84fe-4d148126172c",
+      "name": "Solicitud en proceso",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1960,
+        620
+      ],
+      "notesInFlow": true,
+      "notes": "Respuesta al navegador: otra pestaña ya la está procesando.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "68a9fde8-9071-4687-b2b3-2f57e6221d53",
+              "name": "mensaje",
+              "value": "Otra pestaña ya está procesando esta solicitud. No hace falta volver a tocar el link.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e9c8732b-49ef-4a8b-82e1-f5d2383225cf",
+      "name": "Nota: Aprobación candado",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        160
+      ],
+      "parameters": {
+        "color": 6,
+        "width": 1000,
+        "height": 320,
+        "content": "## 1b · Candado contra doble click\nSi el link se abre dos veces a la vez (doble click, dos pestañas), las dos ejecuciones leen \"pendiente\". Cada una escribe su marca en `nota_staff`, espera 3 s y relee: **solo sigue la que dejó la última marca**. Sin esto se creaban dos eventos y se mandaban dos avisos."
+      }
+    },
+    {
+      "id": "075e35e0-f935-4cf7-aa15-a1e439d0e7cf",
+      "name": "Armar página",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Code: convierte el mensaje final en una página legible.",
+      "parameters": {
+        "jsCode": "// Arma una página simple para el navegador de quien aprueba, con el mensaje del paso anterior.\nconst msg = String($json.mensaje || 'Listo.');\nconst esc = function (s) { return String(s).replace(/[&<>\"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]; }); };\n// Título e ícono según por dónde terminó el flujo.\nconst finales = [\n  ['Fin: aprobada', '✅', 'Visita aprobada'],\n  ['Fin: rechazada', '🛑', 'Visita rechazada'],\n  ['Fin: rechazo automático', '⚠️', 'No se pudo aprobar'],\n  ['Solicitud en proceso', '⏳', 'Ya se está procesando'],\n  ['Solicitud inválida', 'ℹ️', 'No hay nada para hacer']\n];\nlet icono = 'ℹ️', titulo = 'Brújula';\nfor (const f of finales) {\n  let paso = false;\n  try { paso = $(f[0]).isExecuted; } catch (e) { paso = false; }\n  if (paso) { icono = f[1]; titulo = f[2]; break; }\n}\nconst estilos = 'body{margin:0;padding:32px 16px;font-family:system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;background:#f4f5f7;color:#1f2328}' +\n  'main{max-width:460px;margin:0 auto;background:#fff;border:1px solid #d8dde3;border-radius:14px;padding:28px;text-align:center}' +\n  '.i{font-size:40px;line-height:1}h1{font-size:20px;margin:12px 0 8px}p{margin:0;color:#4a5560;line-height:1.5}small{display:block;margin-top:20px;color:#8a949e}' +\n  '@media (prefers-color-scheme:dark){body{background:#16181b;color:#e8eaed}main{background:#202327;border-color:#33373c}p{color:#b6bcc3}}';\nconst html = '<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">' +\n  '<title>' + esc(titulo) + ' · Brújula</title><style>' + estilos + '</style></head><body><main>' +\n  '<div class=\"i\">' + icono + '</div><h1>' + esc(titulo) + '</h1><p>' + esc(msg) + '</p>' +\n  '<small>Brújula · Laboratorio de Innovación Educativa</small></main></body></html>';\nreturn [{ json: { html: html, titulo: titulo, mensaje: msg } }];"
+      }
+    },
+    {
+      "id": "8a5f9904-5c3c-4b3a-8561-88f9c566c651",
+      "name": "Responder al navegador",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4140,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Devuelve la página al navegador de quien tocó el link.",
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "7bd65819-f4fa-4b38-8303-5c9087c5fcc1",
+      "name": "Nota: Aprobación respuesta",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3860,
+        160
+      ],
+      "parameters": {
+        "color": 5,
+        "width": 520,
+        "height": 320,
+        "content": "## 3 · Respuesta al navegador\nTodos los finales pasan por acá: se arma una página corta (aprobada, rechazada, no se pudo aprobar, en proceso o nada para hacer) en vez de mostrar JSON."
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook aprobación": {
+      "main": [
+        [
+          {
+            "node": "Buscar solicitud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar solicitud": {
+      "main": [
+        [
+          {
+            "node": "Validar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar": {
+      "main": [
+        [
+          {
+            "node": "¿Válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Válido?": {
+      "main": [
+        [
+          {
+            "node": "Tomar solicitud",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Solicitud inválida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Aprobar?": {
+      "main": [
+        [
+          {
+            "node": "Revalidar disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revalidar disponibilidad": {
+      "main": [
+        [
+          {
+            "node": "¿Sigue libre?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sigue libre?": {
+      "main": [
+        [
+          {
+            "node": "¿Horario libre?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Horario libre?": {
+      "main": [
+        [
+          {
+            "node": "Crear evento aprobado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rechazo automático",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear evento aprobado": {
+      "main": [
+        [
+          {
+            "node": "Marcar confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar confirmada": {
+      "main": [
+        [
+          {
+            "node": "Avisar aprobada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar aprobada": {
+      "main": [
+        [
+          {
+            "node": "Fin: aprobada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rechazo automático": {
+      "main": [
+        [
+          {
+            "node": "Avisar rechazo automático",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar rechazo automático": {
+      "main": [
+        [
+          {
+            "node": "Fin: rechazo automático",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar rechazada": {
+      "main": [
+        [
+          {
+            "node": "Avisar rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar rechazada": {
+      "main": [
+        [
+          {
+            "node": "Fin: rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tomar solicitud": {
+      "main": [
+        [
+          {
+            "node": "Esperar 3 s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar 3 s": {
+      "main": [
+        [
+          {
+            "node": "Releer solicitud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Releer solicitud": {
+      "main": [
+        [
+          {
+            "node": "¿Es nuestra?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es nuestra?": {
+      "main": [
+        [
+          {
+            "node": "¿Aprobar?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Solicitud en proceso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fin: aprobada": {
+      "main": [
+        [
+          {
+            "node": "Armar página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fin: rechazada": {
+      "main": [
+        [
+          {
+            "node": "Armar página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fin: rechazo automático": {
+      "main": [
+        [
+          {
+            "node": "Armar página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Solicitud inválida": {
+      "main": [
+        [
+          {
+            "node": "Armar página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Solicitud en proceso": {
+      "main": [
+        [
+          {
+            "node": "Armar página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar página": {
+      "main": [
+        [
+          {
+            "node": "Responder al navegador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "errorWorkflow": "ea1BObEQv5JQLT7a"
+  },
+  "versionId": "c57c9419-4e16-497a-8e6d-1011c1c2a268",
+  "meta": {},
+  "id": "8LYjkT6Qo4mnx4sZ",
+  "tags": []
+}
